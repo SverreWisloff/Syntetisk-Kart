@@ -6,16 +6,18 @@ Se også [Oppgavebeskrivelse.md](Oppgavebeskrivelse.md) for full oppgavebeskrive
 
 ## Siste skjermdump
 
-![Siste skjermdump av kartresultat](skjermdumper/Skjermbilde%202026-04-17%20kl.%2022.37.10.png)
+![Siste skjermdump av kartresultat](skjermdumper/Skjermbilde%202026-04-17%20kl.%2023.19.18.png)
 
 ## Status
 
-Foreløpig er første del av N50 implementert:
+Foreløpig er disse N50-lagene implementert og verifisert:
 
 - én sammenhengende N50-kystkontur
 - lukket havflate basert på kystkonturen
+- N50-StedsnavnTekst som 3D-punkt for tettsteder
+- N50-VegSenterlinje som 3D-linjer mellom tettsteder
 - tilfeldig generering med ny seed for hver kjøring
-- tester for geometri, variasjon og stabilitet
+- tester for geometri, variasjon og robusthet
 
 ## Teknologi
 
@@ -34,14 +36,15 @@ Løsningen er bygd modulært:
 
 - `synthetic_map.py` er orkestrator og samler all konfigurasjon
 - N50-logikken ligger i `src/syntetisk_kart/synthetic_n50_module.py`
-- videre temalag for veg, høydekurver, vann, bygninger og AR5 kommer i egne moduler
+- foreløpig genereres kystkontur, havflate, tettsteder og vegsenterlinjer i N50
+- videre temalag for høydekurver, vann, bygninger og AR5 kommer i egne moduler
 
 ## Kjøring
 
 Kjør generatoren slik:
 
 ```bash
-PYTHONPATH=src .venv/bin/python synthetic_map.py
+PYTHONPATH=src .venv/bin/python -m syntetisk_kart.main
 ```
 
 For reproducerbar kjøring kan du oppgi egen seed:
@@ -57,6 +60,8 @@ Ved kjøring opprettes foreløpig:
 - `N50.gpkg`
   - laget `n50_kystkontur`
   - laget `n50_havflate`
+  - laget `n50_stedsnavntekst`
+  - laget `n50_vegsenterlinje`
 
 ## Konfigurasjon
 
@@ -67,6 +72,8 @@ Sentrale parametre ligger i `synthetic_map.py`, blant annet:
 - avstand fra bbox til kystlinje
 - hvor langt hjørnepunkter kan trekkes inn fra hjørnene
 - hvor mye kystlinjen kan variere rekursivt
+- antall tettsteder og spredning mellom dem
+- vegparametre for riksveg, blant annet segmentlengde, vegbredde og bueradius `150–250 m`
 
 ## Testing
 
