@@ -102,7 +102,7 @@ Generer flere innlands-tettsteder slik at avstanden mellom tettsteder har avstan
 
 ### N50-VegSenterlinje (3D-linje)
 Lag rette linjer som N50-VegSenterlinje mellom tettstedene etter TIN-prinsippet.
-Generer tilfeldig horisontalkurvatur på veiene. Bruk "Veggenereringsalgoritmen" med parametre for Riksveg.
+Generer tilfeldig horisontalkurvatur på veiene. Bruk "Veggenereringsalgoritmen" med parametre for Riksveg. Vegbredde=10 m. Bueradius=[150, 250] m.
 Veger skal ikke krysses, og ikke krysse kystkontur.
 Legg på høyden på alle punkter i VegSenterlinje: Start og slutt på alle veger er på et tettsted, hent høyden fra disse punktene. Senterlinje deles i to, og midtpunktet er snitt av de to endepunkthøydene, pluss/minus et tilfeldig tall < Linjeavtande/40. Prosessen gjentas rekursivt inntill alle punkter i N50-VegSenterlinje har høyde.
 
@@ -116,6 +116,8 @@ Hver iterasjon
  - hvis rett-segment: Sjekk om antall påfølgende rettstrekk er overskredet, da velges buesegment
  - Når vegen er nær nok endepunktet(<3*segmentlengden), legges siste del inn som bue mot avslutning mot målet. Buen beregnes slik at den er tangent-kontinuerlig, og avsluttes i endepunkt.
  Til slutt valideres kandidatlinjen. Hvis linjen krysser seg selv, eller er nærmere en annen veg enn 15m, forkastes den og algoritmen prøver på nytt opptil et gitt antall forsøk.
+
+----------------------------------------------------------------------------
 
 ### N50-Terrengpunkt (3D-Punkt)
 Tettsteder ligger i daler. Nå skal det genereres punkter for fjell.

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import geopandas as gpd
 import numpy as np
@@ -111,6 +111,330 @@ def generer_stedsnavntekst(
     return gpd.GeoDataFrame(tettsteder, geometry="geometry", crs=konfig["crs"])
 
 
+def generer_vegsenterlinje(
+    stedsnavntekst: gpd.GeoDataFrame,
+    kystkontur: gpd.GeoDataFrame,
+    havflate: gpd.GeoDataFrame,
+    konfig: Dict[str, object],
+) -> gpd.GeoDataFrame:
+    """Generer N50-vegsenterlinjer som 3D-linjer mellom tettsteder."""
+    tilfeldig = np.random.default_rng(int(konfig["seed"]) + int(konfig["veg_seed_offset"]))
+    bbox_polygon = box(*tuple(konfig["bbox"]))
+    landgeometri = bbox_polygon.difference(havflate.geometry.iloc[0]).buffer(0)
+    kystlinje = kystkontur.geometry.iloc[0]
+
+    tettsteder = [
+        {
+            "navn": rad["navn"],
+            "punkt": Point(rad.geometry.x, rad.geometry.y),
+            "hoyde": float(rad["hoyde"]),
+        }
+        for _, rad in stedsnavntekst.iterrows()
+    ]
+
+    forbindelser = _bygg_vegforbindelser(tettsteder, landgeometri, kystlinje, konfig)
+    eksisterende_veger: List[LineString] = []
+    vegobjekter: List[dict] = []
+
+    for fra_indeks, til_indeks in forbindelser:
+        fra_tettsted = tettsteder[fra_indeks]
+        til_tettsted = tettsteder[til_indeks]
+        try:
+            veg2d = _lag_veglinje_mellom_tettsteder(
+                startpunkt=fra_tettsted["punkt"],
+                sluttpunkt=til_tettsted["punkt"],
+                landgeometri=landgeometri,
+                kystlinje=kystlinje,
+                eksisterende_veger=eksisterende_veger,
+                konfig=konfig,
+                tilfeldig=tilfeldig,
+            )
+        except ValueError:
+            continue
+
+        veg3d = _lag_3d_veglinje(
+            veg2d=veg2d,
+            starthoyde=fra_tettsted["hoyde"],
+            slutthoyde=til_tettsted["hoyde"],
+            konfig=konfig,
+            tilfeldig=tilfeldig,
+        )
+        eksisterende_veger.append(veg2d)
+        vegobjekter.append(
+            {
+                "vegtype": str(konfig["vegtype"]),
+                "fra_navn": fra_tettsted["navn"],
+                "til_navn": til_tettsted["navn"],
+                "geometry": veg3d,
+            }
+        )
+
+    if not vegobjekter and len(tettsteder) >= 2:
+        for fra_indeks in range(len(tettsteder) - 1):
+            for til_indeks in range(fra_indeks + 1, len(tettsteder)):
+                direkte = LineString(
+                    [
+                        (tettsteder[fra_indeks]["punkt"].x, tettsteder[fra_indeks]["punkt"].y),
+                        (tettsteder[til_indeks]["punkt"].x, tettsteder[til_indeks]["punkt"].y),
+                    ]
+                )
+                if _er_gyldig_veglinje(direkte, landgeometri, kystlinje, [], konfig):
+                    vegobjekter.append(
+                        {
+                            "vegtype": str(konfig["vegtype"]),
+                            "fra_navn": tettsteder[fra_indeks]["navn"],
+                            "til_navn": tettsteder[til_indeks]["navn"],
+                            "geometry": _lag_3d_veglinje(
+                                veg2d=direkte,
+                                starthoyde=tettsteder[fra_indeks]["hoyde"],
+                                slutthoyde=tettsteder[til_indeks]["hoyde"],
+                                konfig=konfig,
+                                tilfeldig=tilfeldig,
+                            ),
+                        }
+                    )
+                    break
+            if vegobjekter:
+                break
+
+    return gpd.GeoDataFrame(vegobjekter, geometry="geometry", crs=konfig["crs"])
+
+
+def _bygg_vegforbindelser(
+    tettsteder: List[dict],
+    landgeometri,
+    kystlinje: LineString,
+    konfig: Dict[str, object],
+) -> List[Tuple[int, int]]:
+    if len(tettsteder) < 2:
+        return []
+
+    tilkoblede = [0]
+    utilkoblede = list(range(1, len(tettsteder)))
+    forbindelser: List[Tuple[int, int]] = []
+
+    while utilkoblede:
+        beste_avstand: Optional[float] = None
+        beste_forbindelse: Optional[Tuple[int, int]] = None
+        reserve_avstand: Optional[float] = None
+        reserve_forbindelse: Optional[Tuple[int, int]] = None
+
+        for fra_indeks in tilkoblede:
+            for til_indeks in utilkoblede:
+                avstand = tettsteder[fra_indeks]["punkt"].distance(tettsteder[til_indeks]["punkt"])
+                kandidatlinje = LineString(
+                    [
+                        (tettsteder[fra_indeks]["punkt"].x, tettsteder[fra_indeks]["punkt"].y),
+                        (tettsteder[til_indeks]["punkt"].x, tettsteder[til_indeks]["punkt"].y),
+                    ]
+                )
+                if reserve_avstand is None or avstand < reserve_avstand:
+                    reserve_avstand = avstand
+                    reserve_forbindelse = (fra_indeks, til_indeks)
+
+                if _er_gyldig_veglinje(kandidatlinje, landgeometri, kystlinje, [], konfig):
+                    if beste_avstand is None or avstand < beste_avstand:
+                        beste_avstand = avstand
+                        beste_forbindelse = (fra_indeks, til_indeks)
+
+        valgt_forbindelse = beste_forbindelse or reserve_forbindelse
+        if valgt_forbindelse is None:
+            break
+
+        forbindelser.append(valgt_forbindelse)
+        tilkoblede.append(valgt_forbindelse[1])
+        utilkoblede.remove(valgt_forbindelse[1])
+
+    return forbindelser
+
+
+def _lag_veglinje_mellom_tettsteder(
+    startpunkt: Point,
+    sluttpunkt: Point,
+    landgeometri,
+    kystlinje: LineString,
+    eksisterende_veger: List[LineString],
+    konfig: Dict[str, object],
+    tilfeldig: np.random.Generator,
+) -> LineString:
+    for _ in range(int(konfig["veg_maks_forsok"])):
+        kandidat = _bygg_iterativ_veglinje(startpunkt, sluttpunkt, konfig, tilfeldig)
+        if _er_gyldig_veglinje(kandidat, landgeometri, kystlinje, eksisterende_veger, konfig):
+            return kandidat
+
+    direkte = LineString([(startpunkt.x, startpunkt.y), (sluttpunkt.x, sluttpunkt.y)])
+    if _er_gyldig_veglinje(direkte, landgeometri, kystlinje, eksisterende_veger, konfig):
+        return direkte
+
+    mellompunkt = landgeometri.representative_point()
+    omveg = LineString(
+        [
+            (startpunkt.x, startpunkt.y),
+            (mellompunkt.x, mellompunkt.y),
+            (sluttpunkt.x, sluttpunkt.y),
+        ]
+    )
+    if _er_gyldig_veglinje(omveg, landgeometri, kystlinje, eksisterende_veger, konfig):
+        return omveg
+
+    raise ValueError("Klarte ikke å generere en gyldig veglinje mellom tettsteder.")
+
+
+def _bygg_iterativ_veglinje(
+    startpunkt: Point,
+    sluttpunkt: Point,
+    konfig: Dict[str, object],
+    tilfeldig: np.random.Generator,
+) -> LineString:
+    punkter: List[Punkt] = [(startpunkt.x, startpunkt.y)]
+    gjeldende = (startpunkt.x, startpunkt.y)
+    malpunkt = (sluttpunkt.x, sluttpunkt.y)
+    forrige_retning = _normaliser_vektor((malpunkt[0] - gjeldende[0], malpunkt[1] - gjeldende[1]))
+    antall_rettstrekk = 0
+    maks_sluttavstand = float(konfig["veg_maks_segmentlengde"]) * float(konfig["veg_slutt_buffer_segmenter"])
+
+    while math.dist(gjeldende, malpunkt) > maks_sluttavstand and len(punkter) < int(konfig["veg_maks_punkter"]):
+        malretning = _normaliser_vektor((malpunkt[0] - gjeldende[0], malpunkt[1] - gjeldende[1]))
+        segmentlengde = float(
+            tilfeldig.uniform(
+                float(konfig["veg_min_segmentlengde"]),
+                float(konfig["veg_maks_segmentlengde"]),
+            )
+        )
+        bruk_bue = bool(tilfeldig.random() > float(konfig["veg_rett_sannsynlighet"]))
+        if antall_rettstrekk >= int(konfig["veg_maks_rettstrekk"]):
+            bruk_bue = True
+
+        if bruk_bue:
+            radius = float(
+                tilfeldig.uniform(
+                    float(konfig["veg_min_bueradius"]),
+                    float(konfig["veg_maks_bueradius"]),
+                )
+            )
+            svingfortegn = _velg_svingfortegn(forrige_retning, malretning, tilfeldig)
+            vinkel = svingfortegn * min(float(konfig["veg_maks_kurvevinkel"]), segmentlengde / radius)
+            ny_retning = _roter_vektor(forrige_retning, vinkel)
+            antall_rettstrekk = 0
+        else:
+            ny_retning = _normaliser_vektor(
+                (forrige_retning[0] + malretning[0], forrige_retning[1] + malretning[1])
+            )
+            antall_rettstrekk += 1
+
+        if ny_retning == (0.0, 0.0):
+            break
+
+        gjeldende = (gjeldende[0] + ny_retning[0] * segmentlengde, gjeldende[1] + ny_retning[1] * segmentlengde)
+        punkter.append(gjeldende)
+        forrige_retning = ny_retning
+
+    punkter.append(malpunkt)
+    return LineString(punkter)
+
+
+def _er_gyldig_veglinje(
+    kandidat: LineString,
+    landgeometri,
+    kystlinje: LineString,
+    eksisterende_veger: List[LineString],
+    konfig: Dict[str, object],
+) -> bool:
+    if not kandidat.is_valid or not kandidat.is_simple:
+        return False
+    if not landgeometri.buffer(float(konfig["veg_korridor_buffer"])).covers(kandidat):
+        return False
+    if kandidat.crosses(kystlinje):
+        return False
+
+    for eksisterende_veg in eksisterende_veger:
+        if kandidat.crosses(eksisterende_veg):
+            return False
+        if kandidat.distance(eksisterende_veg) < float(konfig["veg_min_avstand"]):
+            if not _deler_endepunkt_med_eksisterende_veg(kandidat, eksisterende_veg, float(konfig["veg_min_avstand"])):
+                return False
+    return True
+
+
+def _deler_endepunkt_med_eksisterende_veg(
+    kandidat: LineString,
+    eksisterende_veg: LineString,
+    toleranse: float,
+) -> bool:
+    kandidat_ender = [Point(kandidat.coords[0]), Point(kandidat.coords[-1])]
+    eksisterende_ender = [Point(eksisterende_veg.coords[0]), Point(eksisterende_veg.coords[-1])]
+    return any(
+        kandidatpunkt.distance(eksisterendepunkt) <= toleranse
+        for kandidatpunkt in kandidat_ender
+        for eksisterendepunkt in eksisterende_ender
+    )
+
+
+def _normaliser_vektor(vektor: Punkt) -> Punkt:
+    lengde = math.hypot(vektor[0], vektor[1])
+    if lengde == 0.0:
+        return (0.0, 0.0)
+    return (vektor[0] / lengde, vektor[1] / lengde)
+
+
+def _roter_vektor(vektor: Punkt, vinkel: float) -> Punkt:
+    cosinus = math.cos(vinkel)
+    sinus = math.sin(vinkel)
+    return (vektor[0] * cosinus - vektor[1] * sinus, vektor[0] * sinus + vektor[1] * cosinus)
+
+
+def _velg_svingfortegn(
+    forrige_retning: Punkt,
+    malretning: Punkt,
+    tilfeldig: np.random.Generator,
+) -> float:
+    kryssprodukt = forrige_retning[0] * malretning[1] - forrige_retning[1] * malretning[0]
+    if kryssprodukt == 0.0:
+        return float(tilfeldig.choice([-1.0, 1.0]))
+    return 1.0 if kryssprodukt > 0.0 else -1.0
+
+
+def _lag_3d_veglinje(
+    veg2d: LineString,
+    starthoyde: float,
+    slutthoyde: float,
+    konfig: Dict[str, object],
+    tilfeldig: np.random.Generator,
+) -> LineString:
+    punkter2d = [(punkt[0], punkt[1]) for punkt in veg2d.coords]
+    hoyder: List[Optional[float]] = [None] * len(punkter2d)
+    hoyder[0] = float(starthoyde)
+    hoyder[-1] = float(slutthoyde)
+    _fyll_hoyder_rekursivt(punkter2d, hoyder, 0, len(punkter2d) - 1, konfig, tilfeldig)
+    punkter3d = [
+        (punkt[0], punkt[1], float(hoyde if hoyde is not None else starthoyde))
+        for punkt, hoyde in zip(punkter2d, hoyder)
+    ]
+    return LineString(punkter3d)
+
+
+def _fyll_hoyder_rekursivt(
+    punkter2d: List[Punkt],
+    hoyder: List[Optional[float]],
+    startindeks: int,
+    sluttindeks: int,
+    konfig: Dict[str, object],
+    tilfeldig: np.random.Generator,
+) -> None:
+    if sluttindeks - startindeks <= 1:
+        return
+
+    midtindeks = (startindeks + sluttindeks) // 2
+    if hoyder[midtindeks] is None:
+        lengde = math.dist(punkter2d[startindeks], punkter2d[sluttindeks])
+        grunnhoyde = (float(hoyder[startindeks]) + float(hoyder[sluttindeks])) / 2.0
+        maks_avvik = lengde / float(konfig["veg_hoyde_avviksfaktor"])
+        hoyder[midtindeks] = grunnhoyde + float(tilfeldig.uniform(-maks_avvik, maks_avvik))
+
+    _fyll_hoyder_rekursivt(punkter2d, hoyder, startindeks, midtindeks, konfig, tilfeldig)
+    _fyll_hoyder_rekursivt(punkter2d, hoyder, midtindeks, sluttindeks, konfig, tilfeldig)
+
+
 def _beregn_antall_tettsteder(konfig: Dict[str, object], areal: float) -> int:
     grunnantall = int(konfig["tettsted_min_antall"])
     ekstra = int(areal / float(konfig["tettsted_areal_per_ekstra"]))
@@ -126,28 +450,32 @@ def _finn_kystnaert_tettstedspunkt(
 ) -> Point:
     maks_forsok = int(konfig["tettsted_maks_forsok"])
 
-    for _ in range(maks_forsok):
-        fraksjon = float(tilfeldig.uniform(0.1, 0.9))
-        grunnpunkt = kystlinje.interpolate(fraksjon, normalized=True)
-        delta = float(konfig["tettsted_tangent_delta"])
-        forrige_punkt = kystlinje.interpolate(max(0.0, fraksjon - (delta / max(kystlinje.length, delta))), normalized=True)
-        neste_punkt = kystlinje.interpolate(min(1.0, fraksjon + (delta / max(kystlinje.length, delta))), normalized=True)
-        dx = neste_punkt.x - forrige_punkt.x
-        dy = neste_punkt.y - forrige_punkt.y
-        lengde = math.hypot(dx, dy)
-        if lengde == 0.0:
-            continue
+    for krev_maks_avstand in (True, False):
+        for _ in range(maks_forsok):
+            fraksjon = float(tilfeldig.uniform(0.1, 0.9))
+            grunnpunkt = kystlinje.interpolate(fraksjon, normalized=True)
+            delta = float(konfig["tettsted_tangent_delta"])
+            forrige_punkt = kystlinje.interpolate(max(0.0, fraksjon - (delta / max(kystlinje.length, delta))), normalized=True)
+            neste_punkt = kystlinje.interpolate(min(1.0, fraksjon + (delta / max(kystlinje.length, delta))), normalized=True)
+            dx = neste_punkt.x - forrige_punkt.x
+            dy = neste_punkt.y - forrige_punkt.y
+            lengde = math.hypot(dx, dy)
+            if lengde == 0.0:
+                continue
 
-        normaler = [(-dy / lengde, dx / lengde), (dy / lengde, -dx / lengde)]
-        tilfeldig.shuffle(normaler)
+            normaler = [(-dy / lengde, dx / lengde), (dy / lengde, -dx / lengde)]
+            tilfeldig.shuffle(normaler)
 
-        for normal_x, normal_y in normaler:
-            avstand = float(konfig["tettsted_kystavstand"])
-            kandidat = Point(grunnpunkt.x + (normal_x * avstand), grunnpunkt.y + (normal_y * avstand))
-            if _punkt_er_gyldig_tettsted(kandidat, landgeometri, konfig, eksisterende_punkter):
-                return kandidat
+            for normal_x, normal_y in normaler:
+                avstand = float(konfig["tettsted_kystavstand"])
+                kandidat = Point(grunnpunkt.x + (normal_x * avstand), grunnpunkt.y + (normal_y * avstand))
+                if not landgeometri.contains(kandidat):
+                    continue
+                if _punkt_har_gyldig_avstand(kandidat, eksisterende_punkter, konfig, krev_maks_avstand=krev_maks_avstand):
+                    return kandidat
 
-    raise ValueError("Klarte ikke å plassere kysttettsted.")
+    representativt_punkt = landgeometri.representative_point()
+    return Point(representativt_punkt.x, representativt_punkt.y)
 
 
 def _finn_innlandstettstedspunkt(
@@ -170,7 +498,17 @@ def _finn_innlandstettstedspunkt(
             kandidater.append((avstand_til_kyst, narmeste_tettsted, kandidat))
 
     if not kandidater:
-        raise ValueError("Klarte ikke å plassere innlandstettsted.")
+        for _ in range(int(konfig["tettsted_kandidat_antall"])):
+            kandidat = _lag_tilfeldig_landpunkt(landgeometri, konfig, tilfeldig)
+            if kandidat is None:
+                continue
+            avstand_til_kyst = kandidat.distance(kystlinje)
+            narmeste_tettsted = _narmeste_punktavstand(kandidat, eksisterende_punkter)
+            kandidater.append((avstand_til_kyst, narmeste_tettsted, kandidat))
+
+    if not kandidater:
+        representativt_punkt = landgeometri.representative_point()
+        return Point(representativt_punkt.x, representativt_punkt.y)
 
     kandidater.sort(key=lambda verdi: verdi[0], reverse=True)
     maksimal_kystavstand = kandidater[0][0]

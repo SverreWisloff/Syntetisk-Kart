@@ -7,7 +7,12 @@ import os
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from syntetisk_kart.synthetic_n50_module import generer_havflate, generer_kystkontur, generer_stedsnavntekst
+from syntetisk_kart.synthetic_n50_module import (
+    generer_havflate,
+    generer_kystkontur,
+    generer_stedsnavntekst,
+    generer_vegsenterlinje,
+)
 
 STANDARD_KONFIGURASJON: Dict[str, Any] = {
     "bbox": (497929.0, 7027929.0, 512071.0, 7042071.0),
@@ -17,6 +22,7 @@ STANDARD_KONFIGURASJON: Dict[str, Any] = {
     "kystlag_navn": "n50_kystkontur",
     "havlag_navn": "n50_havflate",
     "stedsnavn_lag_navn": "n50_stedsnavntekst",
+    "veglag_navn": "n50_vegsenterlinje",
     "tilgjengelige_sider": ["vest", "ost", "sor", "nord"],
     "min_antall_sider": 1,
     "maks_antall_sider": 4,
@@ -52,6 +58,21 @@ STANDARD_KONFIGURASJON: Dict[str, Any] = {
         "Skogstrand",
         "Elverud",
     ],
+    "veg_seed_offset": 2000,
+    "vegtype": "Riksveg",
+    "veg_min_segmentlengde": 250.0,
+    "veg_maks_segmentlengde": 700.0,
+    "veg_min_bueradius": 150.0,
+    "veg_maks_bueradius": 250.0,
+    "veg_rett_sannsynlighet": 0.45,
+    "veg_maks_rettstrekk": 2,
+    "veg_maks_punkter": 24,
+    "veg_maks_forsok": 150,
+    "veg_min_avstand": 15.0,
+    "veg_korridor_buffer": 25.0,
+    "veg_slutt_buffer_segmenter": 3.0,
+    "veg_maks_kurvevinkel": 0.5,
+    "veg_hoyde_avviksfaktor": 40.0,
 }
 
 
@@ -87,6 +108,7 @@ def generer_n50_kystkontur(
     kystkontur = generer_kystkontur(konfig)
     havflate = generer_havflate(kystkontur, konfig)
     stedsnavntekst = generer_stedsnavntekst(kystkontur, havflate, konfig)
+    vegsenterlinje = generer_vegsenterlinje(stedsnavntekst, kystkontur, havflate, konfig)
 
     output_sti = Path(output_katalog)
     output_sti.mkdir(parents=True, exist_ok=True)
@@ -97,10 +119,12 @@ def generer_n50_kystkontur(
     kystkontur.to_file(filsti, layer=str(konfig["kystlag_navn"]), driver="GPKG")
     havflate.to_file(filsti, layer=str(konfig["havlag_navn"]), driver="GPKG", mode="a")
     stedsnavntekst.to_file(filsti, layer=str(konfig["stedsnavn_lag_navn"]), driver="GPKG", mode="a")
+    vegsenterlinje.to_file(filsti, layer=str(konfig["veglag_navn"]), driver="GPKG", mode="a")
     return {
         "kystkontur": kystkontur,
         "havflate": havflate,
         "stedsnavntekst": stedsnavntekst,
+        "vegsenterlinje": vegsenterlinje,
         "filsti": filsti,
         "seed": konfig["seed"],
     }
@@ -118,7 +142,10 @@ def main() -> None:
         bruker_konfig={"seed": args.seed},
     )
     antall_linjer = len(resultat["kystkontur"])
-    print(f"Genererte {antall_linjer} kystlinjer i {resultat['filsti']} med seed {resultat['seed']}")
+    antall_veger = len(resultat["vegsenterlinje"])
+    print(
+        f"Genererte {antall_linjer} kystlinjer og {antall_veger} veger i {resultat['filsti']} med seed {resultat['seed']}"
+    )
 
 
 if __name__ == "__main__":

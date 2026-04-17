@@ -122,6 +122,33 @@ def test_kystlinje_far_hjornepunkt_inntil_tretti_prosent_inn(tmp_path: Path) -> 
     assert (slutt_x, slutt_y) != (500300.0, 7033700.0)
 
 
+def test_generer_n50_vegsenterlinje_gir_gyldige_3d_linjer(tmp_path: Path) -> None:
+    resultat = generer_n50_kystkontur(
+        output_katalog=tmp_path,
+        bruker_konfig={
+            "bbox": TEST_BBOX,
+            "seed": 9,
+            "valgte_sider": ["vest", "nord", "ost"],
+        },
+    )
+
+    veger = resultat["vegsenterlinje"]
+    kystlinje = resultat["kystkontur"].geometry.iloc[0]
+    tettsteder = [Point(geometri.x, geometri.y) for geometri in resultat["stedsnavntekst"].geometry]
+
+    assert len(veger) >= 1
+    assert set(veger.geom_type) == {"LineString"}
+    assert veger.is_valid.all()
+    assert all(geometri.has_z for geometri in veger.geometry)
+    assert all(not geometri.crosses(kystlinje) for geometri in veger.geometry)
+
+    for geometri in veger.geometry:
+        startpunkt = Point(geometri.coords[0][0], geometri.coords[0][1])
+        sluttpunkt = Point(geometri.coords[-1][0], geometri.coords[-1][1])
+        assert any(startpunkt.distance(tettsted) < 1e-6 for tettsted in tettsteder)
+        assert any(sluttpunkt.distance(tettsted) < 1e-6 for tettsted in tettsteder)
+
+
 def test_generer_n50_kystkontur_blir_tilfeldig_uten_seed(tmp_path: Path) -> None:
     resultat_en = generer_n50_kystkontur(
         output_katalog=tmp_path / "en",
