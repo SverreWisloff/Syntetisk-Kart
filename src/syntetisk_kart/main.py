@@ -1,9 +1,5 @@
-from syntetisk_kart import build_message
-
-
-def main() -> None:
-    print(build_message())
+from synthetic_map import main as kjor_hovedprogram
 
 
 if __name__ == "__main__":
-    main()
+    kjor_hovedprogram()

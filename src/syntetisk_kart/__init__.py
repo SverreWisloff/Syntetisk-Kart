@@ -1,7 +1,5 @@
-"""Syntetisk-kart package."""
+"""Pakke for syntetisk kartgenerering."""
 
-__all__ = ["build_message"]
+from .synthetic_n50_module import generer_kystkontur
 
-
-def build_message() -> str:
-    return "Hei fra Syntetisk-kart!"
+__all__ = ["generer_kystkontur"]

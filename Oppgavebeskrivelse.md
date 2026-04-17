@@ -80,13 +80,17 @@ Bygg løsningen modulært med én orkestrator og temamoduler:
   - FKB-Takkant
 
 6) AR50
+- <TODO>
 
 ## Algoritmer for generering av objekttyper
 
 ### N50-Kystkontur (2D-kurve) 
 Kystkontur tilfeldig 1, 2, 3 eller fire kanter.
+Uansett antall sider, så skal det være en kystlinje, ikke flere. Så dersom det er flere kanter det skal lages kystkontur, må dise være inntill hverandre.
+Ved generering av hjørnepunkter skal disse ikke være plassert helt ut i hjørnet, men tilfeldig inntil 30%inn fra hjørnekanten.
 For de kantene som skal ha kystkontur, lag kystkontur som en rett linje 300m fra ytterkanten av bbox.
 Linje deles i to, og midtpunktet forskyves fra linjen med en tilfeldig verdi < Linjeavtande/3. Prosessen gjentas rekursivt for de nye linjesegmentene for å skape ujevnheter, inntil linjeavstand er <1m. Sjekk for at linjen ikke krysser bbox eller kystkontur.
+>Lag et lukket polygon av havet med kystkontur
 
 ### N50-StedsnavnTekst (3D-Punkt)
 N50-StedsnavnTekst er objekttypen som beskriver tettsted. Dette er en 3D-punkt. 
