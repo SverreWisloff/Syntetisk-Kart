@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "syntetisk-kart"
+version = "0.1.0"
+description = "Starter project for Syntetisk-kart"
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [
+  { name = "sw" }
+]
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+syntetisk-kart = "syntetisk_kart.main:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
