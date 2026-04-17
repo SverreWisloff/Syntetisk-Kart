@@ -17,6 +17,10 @@ venv/
 # VS Code
 .vscode/
 
+# macOS
+.DS_Store
+**/.DS_Store
+
 # GeoPackage-filer
 *.gpkg
 *.gpkg-shm

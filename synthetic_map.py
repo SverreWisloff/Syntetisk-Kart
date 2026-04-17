@@ -7,15 +7,16 @@ import os
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from syntetisk_kart.synthetic_n50_module import generer_havflate, generer_kystkontur
+from syntetisk_kart.synthetic_n50_module import generer_havflate, generer_kystkontur, generer_stedsnavntekst
 
 STANDARD_KONFIGURASJON: Dict[str, Any] = {
-    "bbox": (500000.0, 7030000.0, 510000.0, 7040000.0),
+    "bbox": (497929.0, 7027929.0, 512071.0, 7042071.0),
     "crs": "EPSG:25833",
     "seed": None,
     "n50_filnavn": "N50.gpkg",
     "kystlag_navn": "n50_kystkontur",
     "havlag_navn": "n50_havflate",
+    "stedsnavn_lag_navn": "n50_stedsnavntekst",
     "tilgjengelige_sider": ["vest", "ost", "sor", "nord"],
     "min_antall_sider": 1,
     "maks_antall_sider": 4,
@@ -27,6 +28,30 @@ STANDARD_KONFIGURASJON: Dict[str, Any] = {
     "avviksfaktor": 3.0,
     "maks_innoveravvik": 1000.0,
     "maks_forsok_per_side": 25,
+    "stedsnavn_seed_offset": 1000,
+    "tettsted_min_antall": 2,
+    "tettsted_maks_antall": 6,
+    "tettsted_areal_per_ekstra": 12000000.0,
+    "tettsted_kystandel": 0.4,
+    "tettsted_kystavstand": 200.0,
+    "tettsted_avstand_min": 2000.0,
+    "tettsted_avstand_maks": 6000.0,
+    "tettsted_kyst_hoyde": 15.0,
+    "tettsted_hoyde_divisor": 20.0,
+    "tettsted_innland_min_kystandel": 0.25,
+    "tettsted_innland_avstand_jitter": 0.08,
+    "tettsted_tangent_delta": 25.0,
+    "tettsted_kandidat_antall": 250,
+    "tettsted_maks_forsok": 500,
+    "tettsted_boks_margin": 100.0,
+    "tettsted_navn": [
+        "Sjøvik",
+        "Fjordnes",
+        "Bergstad",
+        "Dalheim",
+        "Skogstrand",
+        "Elverud",
+    ],
 }
 
 
@@ -61,6 +86,7 @@ def generer_n50_kystkontur(
     konfig["seed"] = _klargjor_seed(konfig)
     kystkontur = generer_kystkontur(konfig)
     havflate = generer_havflate(kystkontur, konfig)
+    stedsnavntekst = generer_stedsnavntekst(kystkontur, havflate, konfig)
 
     output_sti = Path(output_katalog)
     output_sti.mkdir(parents=True, exist_ok=True)
@@ -70,7 +96,14 @@ def generer_n50_kystkontur(
 
     kystkontur.to_file(filsti, layer=str(konfig["kystlag_navn"]), driver="GPKG")
     havflate.to_file(filsti, layer=str(konfig["havlag_navn"]), driver="GPKG", mode="a")
-    return {"kystkontur": kystkontur, "havflate": havflate, "filsti": filsti, "seed": konfig["seed"]}
+    stedsnavntekst.to_file(filsti, layer=str(konfig["stedsnavn_lag_navn"]), driver="GPKG", mode="a")
+    return {
+        "kystkontur": kystkontur,
+        "havflate": havflate,
+        "stedsnavntekst": stedsnavntekst,
+        "filsti": filsti,
+        "seed": konfig["seed"],
+    }
 
 
 def main() -> None:

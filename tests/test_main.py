@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import numpy as np
+from shapely.geometry import Point
 
 from synthetic_map import generer_n50_kystkontur
 from syntetisk_kart.synthetic_n50_module import _del_segment_rekursivt
@@ -45,6 +46,26 @@ def test_generer_havflate_blir_lukket_polygon(tmp_path: Path) -> None:
     assert havflate.area.iloc[0] > 0
 
 
+def test_generer_n50_stedsnavntekst_gir_kyst_og_innlandspunkt(tmp_path: Path) -> None:
+    resultat = generer_n50_kystkontur(
+        output_katalog=tmp_path,
+        bruker_konfig={
+            "bbox": TEST_BBOX,
+            "seed": 7,
+            "valgte_sider": ["vest", "nord", "ost"],
+        },
+    )
+
+    stedsnavn = resultat["stedsnavntekst"]
+
+    assert len(stedsnavn) >= 2
+    assert set(stedsnavn.geom_type) == {"Point"}
+    assert stedsnavn.is_valid.all()
+    assert (stedsnavn["hoyde"] == 15.0).any()
+    assert (stedsnavn["hoyde"] > 15.0).any()
+    assert (stedsnavn["navneobjekttype"] == "By").all()
+
+
 def test_generer_n50_kystkontur_med_flere_sider_blir_en_sammenhengende_linje(tmp_path: Path) -> None:
     resultat = generer_n50_kystkontur(
         output_katalog=tmp_path,
@@ -59,6 +80,24 @@ def test_generer_n50_kystkontur_med_flere_sider_blir_en_sammenhengende_linje(tmp
 
     assert len(kyst) == 1
     assert kyst.geometry.iloc[0].is_simple
+
+
+def test_innlandstettsteder_far_variert_avstand_til_kyst(tmp_path: Path) -> None:
+    resultat = generer_n50_kystkontur(
+        output_katalog=tmp_path,
+        bruker_konfig={
+            "bbox": TEST_BBOX,
+            "seed": 7,
+            "valgte_sider": ["vest", "nord", "ost"],
+        },
+    )
+
+    innland = resultat["stedsnavntekst"].query("stedstype == 'innland'")
+    kystlinje = resultat["kystkontur"].geometry.iloc[0]
+    avstander = innland.geometry.apply(lambda geometri: Point(geometri.x, geometri.y).distance(kystlinje))
+
+    assert len(avstander) >= 2
+    assert avstander.max() - avstander.min() > 1500.0
 
 
 def test_kystlinje_far_hjornepunkt_inntil_tretti_prosent_inn(tmp_path: Path) -> None:

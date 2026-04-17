@@ -21,7 +21,7 @@ Programmet skal produsere GIS-klare data i GeoPackage-format, der hvert tema lig
 Bygg løsningen modulært med én orkestrator og temamoduler:
 
 - `Syntetisk_Kart.py`: orkestrerer kjøring, konfig, avhengigheter og lagring
-- `Syntetisk_N50.py`: 
+- `Syntetisk_N50.py`: TODO
 - `Syntetisk_Veg.py`: vegsenterlinjer og vegkant
 - `Syntetisk_Hoydekurve.py`: terrengpunkter, TIN, høydekurver
 - `Syntetisk_Vann.py`: innsjøer, bekker/elv, myr
@@ -90,7 +90,7 @@ Uansett antall sider, så skal det være en kystlinje, ikke flere. Så dersom de
 Ved generering av hjørnepunkter skal disse ikke være plassert helt ut i hjørnet, men tilfeldig inntil 30%inn fra hjørnekanten.
 For de kantene som skal ha kystkontur, lag kystkontur som en rett linje 300m fra ytterkanten av bbox.
 Linje deles i to, og midtpunktet forskyves fra linjen med en tilfeldig verdi < Linjeavtande/3. Prosessen gjentas rekursivt for de nye linjesegmentene for å skape ujevnheter, inntil linjeavstand er <1m. Sjekk for at linjen ikke krysser bbox eller kystkontur.
->Lag et lukket polygon av havet med kystkontur
+Lag et lukket polygon av havet med kystkontur
 
 ### N50-StedsnavnTekst (3D-Punkt)
 N50-StedsnavnTekst er objekttypen som beskriver tettsted. Dette er en 3D-punkt. 
@@ -105,6 +105,17 @@ Lag rette linjer som N50-VegSenterlinje mellom tettstedene etter TIN-prinsippet.
 Generer tilfeldig horisontalkurvatur på veiene. Bruk "Veggenereringsalgoritmen" med parametre for Riksveg.
 Veger skal ikke krysses, og ikke krysse kystkontur.
 Legg på høyden på alle punkter i VegSenterlinje: Start og slutt på alle veger er på et tettsted, hent høyden fra disse punktene. Senterlinje deles i to, og midtpunktet er snitt av de to endepunkthøydene, pluss/minus et tilfeldig tall < Linjeavtande/40. Prosessen gjentas rekursivt inntill alle punkter i N50-VegSenterlinje har høyde.
+
+#### Veggenereringsalgoritmen
+Startpunkt og endepunkt.
+Vegen bygges iterativt fra start mot slutt som en polyline. 
+Hver iterasjon 
+ - beregnes retningen fra nåværende punkt mot målet.
+ - enten et buesegment med tilfeldig radius og tilfeldig segmentlengde, eller et rett-segment med tilfeldig lengde. Buesegment og rett-segment har minimum og maksimumverdi.
+ - hvis buesegmentet: sirkelbue som er tangent til forrige retning. Radiusens fortegn bestemmes av om vegen må dreie mot høyre eller venstre for å nærme seg målretningen/endepunktet. 
+ - hvis rett-segment: Sjekk om antall påfølgende rettstrekk er overskredet, da velges buesegment
+ - Når vegen er nær nok endepunktet(<3*segmentlengden), legges siste del inn som bue mot avslutning mot målet. Buen beregnes slik at den er tangent-kontinuerlig, og avsluttes i endepunkt.
+ Til slutt valideres kandidatlinjen. Hvis linjen krysser seg selv, eller er nærmere en annen veg enn 15m, forkastes den og algoritmen prøver på nytt opptil et gitt antall forsøk.
 
 ### N50-Terrengpunkt (3D-Punkt)
 Tettsteder ligger i daler. Nå skal det genereres punkter for fjell.

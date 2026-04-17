@@ -7,7 +7,7 @@ from typing import Dict, List, Tuple
 
 import geopandas as gpd
 import numpy as np
-from shapely.geometry import LineString, Polygon, box
+from shapely.geometry import LineString, Point, Polygon, box
 
 Punkt = Tuple[float, float]
 SIDE_REKKEFOLGE = ["vest", "nord", "ost", "sor"]
@@ -48,6 +48,211 @@ def generer_havflate(kystkontur: gpd.GeoDataFrame, konfig: Dict[str, object]) ->
         geometry="geometry",
         crs=konfig["crs"],
     )
+
+
+def generer_stedsnavntekst(
+    kystkontur: gpd.GeoDataFrame,
+    havflate: gpd.GeoDataFrame,
+    konfig: Dict[str, object],
+) -> gpd.GeoDataFrame:
+    """Generer N50-stedsnavntekst som 3D-punkter for tettsteder."""
+    tilfeldig = np.random.default_rng(int(konfig["seed"]) + int(konfig["stedsnavn_seed_offset"]))
+    bbox_polygon = box(*tuple(konfig["bbox"]))
+    landgeometri = bbox_polygon.difference(havflate.geometry.iloc[0])
+    kystlinje = kystkontur.geometry.iloc[0]
+    antall_tettsteder = _beregn_antall_tettsteder(konfig, bbox_polygon.area)
+    antall_kysttettsteder = max(1, min(antall_tettsteder - 1, int(round(antall_tettsteder * float(konfig["tettsted_kystandel"])))) )
+    antall_innlandstettsteder = max(1, antall_tettsteder - antall_kysttettsteder)
+    navn_liste = list(konfig["tettsted_navn"])
+
+    tettsteder: List[dict] = []
+    eksisterende_punkter: List[Point] = []
+
+    for indeks in range(antall_kysttettsteder):
+        punkt = _finn_kystnaert_tettstedspunkt(kystlinje, landgeometri, konfig, tilfeldig, eksisterende_punkter)
+        hoyde = float(konfig["tettsted_kyst_hoyde"])
+        geometri = Point(punkt.x, punkt.y, hoyde)
+        eksisterende_punkter.append(Point(punkt.x, punkt.y))
+        tettsteder.append(
+            {
+                "navn": navn_liste[indeks % len(navn_liste)],
+                "navneobjekttype": "By",
+                "stedstype": "kyst",
+                "hoyde": hoyde,
+                "geometry": geometri,
+            }
+        )
+
+    for indeks in range(antall_innlandstettsteder):
+        punkt = _finn_innlandstettstedspunkt(
+            kystlinje,
+            landgeometri,
+            konfig,
+            tilfeldig,
+            eksisterende_punkter,
+            indeks,
+            antall_innlandstettsteder,
+        )
+        avstand_til_kyst = punkt.distance(kystlinje)
+        hoyde = float(avstand_til_kyst / float(konfig["tettsted_hoyde_divisor"]))
+        geometri = Point(punkt.x, punkt.y, hoyde)
+        eksisterende_punkter.append(Point(punkt.x, punkt.y))
+        navn_indeks = antall_kysttettsteder + indeks
+        tettsteder.append(
+            {
+                "navn": navn_liste[navn_indeks % len(navn_liste)],
+                "navneobjekttype": "By",
+                "stedstype": "innland",
+                "hoyde": hoyde,
+                "geometry": geometri,
+            }
+        )
+
+    return gpd.GeoDataFrame(tettsteder, geometry="geometry", crs=konfig["crs"])
+
+
+def _beregn_antall_tettsteder(konfig: Dict[str, object], areal: float) -> int:
+    grunnantall = int(konfig["tettsted_min_antall"])
+    ekstra = int(areal / float(konfig["tettsted_areal_per_ekstra"]))
+    return min(int(konfig["tettsted_maks_antall"]), grunnantall + ekstra)
+
+
+def _finn_kystnaert_tettstedspunkt(
+    kystlinje: LineString,
+    landgeometri,
+    konfig: Dict[str, object],
+    tilfeldig: np.random.Generator,
+    eksisterende_punkter: List[Point],
+) -> Point:
+    maks_forsok = int(konfig["tettsted_maks_forsok"])
+
+    for _ in range(maks_forsok):
+        fraksjon = float(tilfeldig.uniform(0.1, 0.9))
+        grunnpunkt = kystlinje.interpolate(fraksjon, normalized=True)
+        delta = float(konfig["tettsted_tangent_delta"])
+        forrige_punkt = kystlinje.interpolate(max(0.0, fraksjon - (delta / max(kystlinje.length, delta))), normalized=True)
+        neste_punkt = kystlinje.interpolate(min(1.0, fraksjon + (delta / max(kystlinje.length, delta))), normalized=True)
+        dx = neste_punkt.x - forrige_punkt.x
+        dy = neste_punkt.y - forrige_punkt.y
+        lengde = math.hypot(dx, dy)
+        if lengde == 0.0:
+            continue
+
+        normaler = [(-dy / lengde, dx / lengde), (dy / lengde, -dx / lengde)]
+        tilfeldig.shuffle(normaler)
+
+        for normal_x, normal_y in normaler:
+            avstand = float(konfig["tettsted_kystavstand"])
+            kandidat = Point(grunnpunkt.x + (normal_x * avstand), grunnpunkt.y + (normal_y * avstand))
+            if _punkt_er_gyldig_tettsted(kandidat, landgeometri, konfig, eksisterende_punkter):
+                return kandidat
+
+    raise ValueError("Klarte ikke å plassere kysttettsted.")
+
+
+def _finn_innlandstettstedspunkt(
+    kystlinje: LineString,
+    landgeometri,
+    konfig: Dict[str, object],
+    tilfeldig: np.random.Generator,
+    eksisterende_punkter: List[Point],
+    indeks: int,
+    antall_innlandstettsteder: int,
+) -> Point:
+    kandidater: List[tuple[float, float, Point]] = []
+    for _ in range(int(konfig["tettsted_kandidat_antall"])):
+        kandidat = _lag_tilfeldig_landpunkt(landgeometri, konfig, tilfeldig)
+        if kandidat is None:
+            continue
+        if _punkt_har_gyldig_avstand(kandidat, eksisterende_punkter, konfig, krev_maks_avstand=False):
+            avstand_til_kyst = kandidat.distance(kystlinje)
+            narmeste_tettsted = _narmeste_punktavstand(kandidat, eksisterende_punkter)
+            kandidater.append((avstand_til_kyst, narmeste_tettsted, kandidat))
+
+    if not kandidater:
+        raise ValueError("Klarte ikke å plassere innlandstettsted.")
+
+    kandidater.sort(key=lambda verdi: verdi[0], reverse=True)
+    maksimal_kystavstand = kandidater[0][0]
+    malavstand = _beregn_malavstand_for_innland(
+        maksimal_kystavstand,
+        indeks,
+        antall_innlandstettsteder,
+        konfig,
+        tilfeldig,
+    )
+
+    beste_kandidat = min(
+        kandidater,
+        key=lambda verdi: (abs(verdi[0] - malavstand), -verdi[1]),
+    )
+    return beste_kandidat[2]
+
+
+def _beregn_malavstand_for_innland(
+    maksimal_kystavstand: float,
+    indeks: int,
+    antall_innlandstettsteder: int,
+    konfig: Dict[str, object],
+    tilfeldig: np.random.Generator,
+) -> float:
+    if antall_innlandstettsteder <= 1:
+        return maksimal_kystavstand
+
+    minste_kystandel = float(konfig["tettsted_innland_min_kystandel"])
+    progresjon = indeks / max(1, antall_innlandstettsteder - 1)
+    grunnandel = 1.0 - ((1.0 - minste_kystandel) * progresjon)
+    jitter = float(tilfeldig.uniform(-float(konfig["tettsted_innland_avstand_jitter"]), float(konfig["tettsted_innland_avstand_jitter"])))
+    malandel = min(1.0, max(minste_kystandel, grunnandel + jitter))
+    return maksimal_kystavstand * malandel
+
+
+def _narmeste_punktavstand(kandidat: Point, eksisterende_punkter: List[Point]) -> float:
+    if not eksisterende_punkter:
+        return float("inf")
+    return min(kandidat.distance(punkt) for punkt in eksisterende_punkter)
+
+
+def _lag_tilfeldig_landpunkt(landgeometri, konfig: Dict[str, object], tilfeldig: np.random.Generator) -> Point | None:
+    minx, miny, maxx, maxy = landgeometri.bounds
+    margin = float(konfig["tettsted_boks_margin"])
+
+    for _ in range(int(konfig["tettsted_maks_forsok"])):
+        kandidat = Point(
+            float(tilfeldig.uniform(minx + margin, maxx - margin)),
+            float(tilfeldig.uniform(miny + margin, maxy - margin)),
+        )
+        if landgeometri.contains(kandidat):
+            return kandidat
+    return None
+
+
+def _punkt_er_gyldig_tettsted(
+    kandidat: Point,
+    landgeometri,
+    konfig: Dict[str, object],
+    eksisterende_punkter: List[Point],
+) -> bool:
+    if not landgeometri.contains(kandidat):
+        return False
+    return _punkt_har_gyldig_avstand(kandidat, eksisterende_punkter, konfig, krev_maks_avstand=True)
+
+
+def _punkt_har_gyldig_avstand(
+    kandidat: Point,
+    eksisterende_punkter: List[Point],
+    konfig: Dict[str, object],
+    krev_maks_avstand: bool,
+) -> bool:
+    if not eksisterende_punkter:
+        return True
+
+    minste_avstand = min(kandidat.distance(punkt) for punkt in eksisterende_punkter)
+    if minste_avstand < float(konfig["tettsted_avstand_min"]):
+        return False
+    if krev_maks_avstand and minste_avstand > float(konfig["tettsted_avstand_maks"]):
+        return False
+    return True
 
 
 def _velg_sammenhengende_sider(konfig: Dict[str, object], tilfeldig: np.random.Generator) -> List[str]:

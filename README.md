@@ -1,23 +1,78 @@
 # Syntetisk-kart
 
-Prosjektet genererer syntetiske kartdata med GIS-klare lag.
+Syntetisk-kart er et Python-prosjekt som genererer syntetiske GIS-data for et avgrenset område i Norge i UTM-koordinater. Målet er å bygge opp et komplett kartdatasett med realistisk sammenheng mellom terreng, vann, vegnett, bygninger og AR5-arealtyper.
 
-## Kom i gang
+Se også [Oppgavebeskrivelse.md](Oppgavebeskrivelse.md) for full oppgavebeskrivelse og videre plan.
 
-Kjør første versjon av N50-kystkontur:
+## Siste skjermdump
+
+![Siste skjermdump av kartresultat](skjermdumper/Skjermbilde%202026-04-17%20kl.%2022.37.10.png)
+
+## Status
+
+Foreløpig er første del av N50 implementert:
+
+- én sammenhengende N50-kystkontur
+- lukket havflate basert på kystkonturen
+- tilfeldig generering med ny seed for hver kjøring
+- tester for geometri, variasjon og stabilitet
+
+## Teknologi
+
+Prosjektet bruker blant annet:
+
+- Python 3.9+
+- GeoPandas
+- Shapely
+- NumPy
+- Pyogrio
+- CRS: EPSG:25833
+
+## Arkitektur
+
+Løsningen er bygd modulært:
+
+- `synthetic_map.py` er orkestrator og samler all konfigurasjon
+- N50-logikken ligger i `src/syntetisk_kart/synthetic_n50_module.py`
+- videre temalag for veg, høydekurver, vann, bygninger og AR5 kommer i egne moduler
+
+## Kjøring
+
+Kjør generatoren slik:
 
 ```bash
 PYTHONPATH=src .venv/bin/python synthetic_map.py
 ```
 
-For reproducerbar kjøring kan du også oppgi egen seed:
+For reproducerbar kjøring kan du oppgi egen seed:
 
 ```bash
 PYTHONPATH=src .venv/bin/python synthetic_map.py --seed 12345
 ```
 
+## Output
+
+Ved kjøring opprettes foreløpig:
+
+- `N50.gpkg`
+  - laget `n50_kystkontur`
+  - laget `n50_havflate`
+
+## Konfigurasjon
+
+Sentrale parametre ligger i `synthetic_map.py`, blant annet:
+
+- bbox og koordinatsystem
+- antall mulige kystsider
+- avstand fra bbox til kystlinje
+- hvor langt hjørnepunkter kan trekkes inn fra hjørnene
+- hvor mye kystlinjen kan variere rekursivt
+
 ## Testing
+
+Kjør testene slik:
 
 ```bash
 PYTHONPATH=src .venv/bin/python -m pytest
 ```
+
