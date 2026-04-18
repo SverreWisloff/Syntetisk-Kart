@@ -102,7 +102,7 @@ Generer flere innlands-tettsteder slik at avstanden mellom tettsteder har avstan
 
 ### N50-VegSenterlinje (3D-linje)
 Lag rette linjer som N50-VegSenterlinje mellom tettstedene etter TIN-prinsippet.
-Generer tilfeldig horisontalkurvatur på veiene. Bruk "Veggenereringsalgoritmen" med parametre for Riksveg. Vegbredde=10 m. Bueradius=[150, 250] m.
+Generer tilfeldig horisontalkurvatur på veiene. Bruk "Veggenereringsalgoritmen" med parametre for Riksveg. Vegbredde=10 m. Bueradius=tilfeldig tall for hver sving i intervallet[150, 250] m. Segmentlengde=bueradius * tilfeldig faktor i intervallet [1.0, 1.6]
 Veger skal ikke krysses, og ikke krysse kystkontur.
 Legg på høyden på alle punkter i VegSenterlinje: Start og slutt på alle veger er på et tettsted, hent høyden fra disse punktene. Senterlinje deles i to, og midtpunktet er snitt av de to endepunkthøydene, pluss/minus et tilfeldig tall < Linjeavtande/40. Prosessen gjentas rekursivt inntill alle punkter i N50-VegSenterlinje har høyde.
 
@@ -112,15 +112,24 @@ Vegen bygges iterativt fra start mot slutt som en polyline.
 Hver iterasjon 
  - beregnes retningen fra nåværende punkt mot målet.
  - enten et buesegment med tilfeldig radius og tilfeldig segmentlengde, eller et rett-segment med tilfeldig lengde. Buesegment og rett-segment har minimum og maksimumverdi.
+ - Maksimal lengde på rett veg-segment = lengde på bue-segment
+ - La segmentlengde for hvert buesegment beregnes som segmentets radius * (tilfeldig tall i intervallet [1.0 , 1.6])
  - hvis buesegmentet: sirkelbue som er tangent til forrige retning. Radiusens fortegn bestemmes av om vegen må dreie mot høyre eller venstre for å nærme seg målretningen/endepunktet. 
  - hvis rett-segment: Sjekk om antall påfølgende rettstrekk er overskredet, da velges buesegment
+ - Fra et segment til et annet skal det være tangentkontinuitet.
  - Når vegen er nær nok endepunktet(<3*segmentlengden), legges siste del inn som bue mot avslutning mot målet. Buen beregnes slik at den er tangent-kontinuerlig, og avsluttes i endepunkt.
  Til slutt valideres kandidatlinjen. Hvis linjen krysser seg selv, eller er nærmere en annen veg enn 15m, forkastes den og algoritmen prøver på nytt opptil et gitt antall forsøk.
 
 ----------------------------------------------------------------------------
+**HIT HAR JEG KOMMET**
+----------------------------------------------------------------------------
 
 ### N50-Terrengpunkt (3D-Punkt)
 Tettsteder ligger i daler. Nå skal det genereres punkter for fjell.
+Plukk ut terrengpunkter som senere skal brukes til å generere TIN:
+- Langs Kystlinje plukk ut punkt hver slik at avstanden mellom punktene er oppunder 500m.
+- Langs veg plukk ut punkt ikke nærmere hverandre enn 100m.
+- Alle Tettstedene 
 
 ### N50-Hoydekurve (2D-kurve)
 Generer TIN.

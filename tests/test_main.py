@@ -1,10 +1,11 @@
+import math
 from pathlib import Path
 
 import numpy as np
 from shapely.geometry import Point
 
 from synthetic_map import generer_n50_kystkontur
-from syntetisk_kart.synthetic_n50_module import _del_segment_rekursivt
+from syntetisk_kart.synthetic_n50_module import _beregn_buesegmentlengde, _del_segment_rekursivt
 
 
 TEST_BBOX = (500000.0, 7030000.0, 504000.0, 7034000.0)
@@ -149,6 +150,41 @@ def test_generer_n50_vegsenterlinje_gir_gyldige_3d_linjer(tmp_path: Path) -> Non
         assert any(sluttpunkt.distance(tettsted) < 1e-6 for tettsted in tettsteder)
 
 
+def test_veger_far_glatte_buer_med_tangentkontinuitet(tmp_path: Path) -> None:
+    resultat = generer_n50_kystkontur(
+        output_katalog=tmp_path,
+        bruker_konfig={
+            "bbox": TEST_BBOX,
+            "seed": 9,
+            "valgte_sider": ["vest", "nord", "ost"],
+        },
+    )
+
+    veger = resultat["vegsenterlinje"]
+    antall_punkter = [len(list(geometri.coords)) for geometri in veger.geometry]
+    assert max(antall_punkter) >= 6
+
+    for geometri in veger.geometry:
+        koordinater = list(geometri.coords)
+        retninger = []
+        segmentlengder = []
+        for start, slutt in zip(koordinater, koordinater[1:]):
+            dx = slutt[0] - start[0]
+            dy = slutt[1] - start[1]
+            retninger.append(math.atan2(dy, dx))
+            segmentlengder.append(math.dist((start[0], start[1]), (slutt[0], slutt[1])))
+
+        vinkelhopp = []
+        for forrige, neste in zip(retninger, retninger[1:]):
+            differanse = (neste - forrige + math.pi) % (2 * math.pi) - math.pi
+            vinkelhopp.append(abs(differanse))
+
+        assert max(vinkelhopp, default=0.0) <= 2.1
+        assert max(segmentlengder, default=0.0) <= 410.0
+        assert max(vinkelhopp[-3:], default=0.0) <= 0.35
+        assert max(segmentlengder[-3:], default=0.0) <= 80.0
+
+
 def test_generer_n50_kystkontur_blir_tilfeldig_uten_seed(tmp_path: Path) -> None:
     resultat_en = generer_n50_kystkontur(
         output_katalog=tmp_path / "en",
@@ -163,6 +199,21 @@ def test_generer_n50_kystkontur_blir_tilfeldig_uten_seed(tmp_path: Path) -> None
     wkt_to = resultat_to["kystkontur"].geometry.to_wkt().tolist()
 
     assert wkt_en != wkt_to
+
+
+def test_buesegmentlengde_beregnes_fra_radius_og_faktor() -> None:
+    konfig = {
+        "veg_bue_lengdefaktor_min": 1.5,
+        "veg_bue_lengdefaktor_maks": 1.5,
+    }
+
+    segmentlengde = _beregn_buesegmentlengde(
+        radius=200.0,
+        konfig=konfig,
+        tilfeldig=np.random.default_rng(123),
+    )
+
+    assert segmentlengde == 300.0
 
 
 def test_rekursiv_deling_kan_forskyve_begge_veier() -> None:

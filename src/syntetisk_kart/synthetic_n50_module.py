@@ -291,19 +291,30 @@ def _bygg_iterativ_veglinje(
     malpunkt = (sluttpunkt.x, sluttpunkt.y)
     forrige_retning = _normaliser_vektor((malpunkt[0] - gjeldende[0], malpunkt[1] - gjeldende[1]))
     antall_rettstrekk = 0
-    maks_sluttavstand = float(konfig["veg_maks_segmentlengde"]) * float(konfig["veg_slutt_buffer_segmenter"])
+    har_bue = False
+    maks_punkter = int(konfig["veg_maks_punkter"])
+    maks_sluttavstand = max(
+        float(konfig["veg_maks_segmentlengde"]),
+        float(konfig["veg_maks_bueradius"]) * float(konfig["veg_bue_lengdefaktor_maks"]),
+    ) * float(konfig["veg_slutt_buffer_segmenter"])
 
-    while math.dist(gjeldende, malpunkt) > maks_sluttavstand and len(punkter) < int(konfig["veg_maks_punkter"]):
+    while len(punkter) < maks_punkter:
+        avstand_til_mal = math.dist(gjeldende, malpunkt)
         malretning = _normaliser_vektor((malpunkt[0] - gjeldende[0], malpunkt[1] - gjeldende[1]))
-        segmentlengde = float(
-            tilfeldig.uniform(
-                float(konfig["veg_min_segmentlengde"]),
-                float(konfig["veg_maks_segmentlengde"]),
-            )
-        )
+        vinkel_til_mal = _vinkel_mellom_retninger(forrige_retning, malretning)
+
+        if avstand_til_mal <= maks_sluttavstand and vinkel_til_mal <= float(konfig["veg_maks_kurvevinkel"]) and har_bue:
+            break
+
         bruk_bue = bool(tilfeldig.random() > float(konfig["veg_rett_sannsynlighet"]))
         if antall_rettstrekk >= int(konfig["veg_maks_rettstrekk"]):
             bruk_bue = True
+        if not har_bue and avstand_til_mal > float(konfig["veg_min_segmentlengde"]):
+            bruk_bue = True
+        if vinkel_til_mal > float(konfig["veg_retnings_toleranse"]):
+            bruk_bue = True
+
+        forrige_avstand = avstand_til_mal
 
         if bruk_bue:
             radius = float(
@@ -312,24 +323,55 @@ def _bygg_iterativ_veglinje(
                     float(konfig["veg_maks_bueradius"]),
                 )
             )
+            segmentlengde = _beregn_buesegmentlengde(radius, konfig, tilfeldig)
             svingfortegn = _velg_svingfortegn(forrige_retning, malretning, tilfeldig)
-            vinkel = svingfortegn * min(float(konfig["veg_maks_kurvevinkel"]), segmentlengde / radius)
-            ny_retning = _roter_vektor(forrige_retning, vinkel)
-            antall_rettstrekk = 0
-        else:
-            ny_retning = _normaliser_vektor(
-                (forrige_retning[0] + malretning[0], forrige_retning[1] + malretning[1])
+            svingvinkel = max(
+                float(konfig["veg_min_svingvinkel"]),
+                min(segmentlengde / radius, math.pi * 0.9),
             )
+            buepunkter, gjeldende, forrige_retning = _lag_buesegment(
+                startpunkt=gjeldende,
+                startrretning=forrige_retning,
+                radius=radius,
+                svingfortegn=svingfortegn,
+                svingvinkel=svingvinkel,
+                punktavstand=float(konfig["veg_bue_punktavstand"]),
+            )
+            if not buepunkter:
+                break
+            punkter.extend(buepunkter)
+            antall_rettstrekk = 0
+            har_bue = True
+        else:
+            segmentlengde = float(
+                tilfeldig.uniform(
+                    float(konfig["veg_min_segmentlengde"]),
+                    float(konfig["veg_maks_segmentlengde"]),
+                )
+            )
+            segmentlengde = min(segmentlengde, max(float(konfig["veg_min_segmentlengde"]) * 0.5, forrige_avstand * 0.6))
+            if segmentlengde <= 0.0:
+                break
+            gjeldende = (
+                gjeldende[0] + forrige_retning[0] * segmentlengde,
+                gjeldende[1] + forrige_retning[1] * segmentlengde,
+            )
+            punkter.append(gjeldende)
             antall_rettstrekk += 1
 
-        if ny_retning == (0.0, 0.0):
+        if math.dist(gjeldende, malpunkt) >= forrige_avstand:
             break
 
-        gjeldende = (gjeldende[0] + ny_retning[0] * segmentlengde, gjeldende[1] + ny_retning[1] * segmentlengde)
-        punkter.append(gjeldende)
-        forrige_retning = ny_retning
+    if gjeldende != malpunkt:
+        punkter.extend(
+            _lag_avsluttende_tangentbue(
+                startpunkt=gjeldende,
+                sluttpunkt=malpunkt,
+                startrretning=forrige_retning,
+                punktavstand=float(konfig["veg_bue_punktavstand"]),
+            )
+        )
 
-    punkter.append(malpunkt)
     return LineString(punkter)
 
 
@@ -381,6 +423,118 @@ def _roter_vektor(vektor: Punkt, vinkel: float) -> Punkt:
     cosinus = math.cos(vinkel)
     sinus = math.sin(vinkel)
     return (vektor[0] * cosinus - vektor[1] * sinus, vektor[0] * sinus + vektor[1] * cosinus)
+
+
+def _vinkel_mellom_retninger(retning_a: Punkt, retning_b: Punkt) -> float:
+    if retning_a == (0.0, 0.0) or retning_b == (0.0, 0.0):
+        return 0.0
+    skalarprodukt = max(-1.0, min(1.0, retning_a[0] * retning_b[0] + retning_a[1] * retning_b[1]))
+    return math.acos(skalarprodukt)
+
+
+def _beregn_buesegmentlengde(
+    radius: float,
+    konfig: Dict[str, object],
+    tilfeldig: np.random.Generator,
+) -> float:
+    faktor = float(
+        tilfeldig.uniform(
+            float(konfig["veg_bue_lengdefaktor_min"]),
+            float(konfig["veg_bue_lengdefaktor_maks"]),
+        )
+    )
+    return radius * faktor
+
+
+def _lag_buesegment(
+    startpunkt: Punkt,
+    startrretning: Punkt,
+    radius: float,
+    svingfortegn: float,
+    svingvinkel: float,
+    punktavstand: float,
+) -> Tuple[List[Punkt], Punkt, Punkt]:
+    if radius <= 0.0 or svingvinkel <= 0.0 or startrretning == (0.0, 0.0):
+        return [], startpunkt, startrretning
+
+    venstrenormal = (-startrretning[1], startrretning[0])
+    sentrum = (
+        startpunkt[0] + venstrenormal[0] * radius * svingfortegn,
+        startpunkt[1] + venstrenormal[1] * radius * svingfortegn,
+    )
+    startvektor = (startpunkt[0] - sentrum[0], startpunkt[1] - sentrum[1])
+    totalvinkel = svingvinkel * svingfortegn
+    buelengde = abs(radius * svingvinkel)
+    antall_delsteg = max(3, int(math.ceil(buelengde / max(punktavstand, 1.0))))
+
+    punkter: List[Punkt] = []
+    for indeks in range(1, antall_delsteg + 1):
+        andel = indeks / antall_delsteg
+        rotert = _roter_vektor(startvektor, totalvinkel * andel)
+        punkter.append((sentrum[0] + rotert[0], sentrum[1] + rotert[1]))
+
+    sluttretning = _normaliser_vektor(_roter_vektor(startrretning, totalvinkel))
+    return punkter, punkter[-1], sluttretning
+
+
+def _lag_avsluttende_tangentbue(
+    startpunkt: Punkt,
+    sluttpunkt: Punkt,
+    startrretning: Punkt,
+    punktavstand: float,
+) -> List[Punkt]:
+    avstand = math.dist(startpunkt, sluttpunkt)
+    if avstand == 0.0:
+        return []
+
+    if startrretning == (0.0, 0.0):
+        return _legg_til_rett_avslutning(startpunkt, sluttpunkt, punktavstand)
+
+    malretning = _normaliser_vektor((sluttpunkt[0] - startpunkt[0], sluttpunkt[1] - startpunkt[1]))
+    kryssprodukt = startrretning[0] * malretning[1] - startrretning[1] * malretning[0]
+    halvvinkel = _vinkel_mellom_retninger(startrretning, malretning)
+    svingvinkel = min(math.pi * 0.95, halvvinkel * 2.0)
+
+    if abs(kryssprodukt) < 1e-9 or svingvinkel < 1e-6:
+        return _legg_til_rett_avslutning(startpunkt, sluttpunkt, punktavstand)
+
+    sinus_halvvinkel = math.sin(svingvinkel / 2.0)
+    if abs(sinus_halvvinkel) < 1e-9:
+        return _legg_til_rett_avslutning(startpunkt, sluttpunkt, punktavstand)
+
+    radius = avstand / (2.0 * abs(sinus_halvvinkel))
+    buepunkter, _, _ = _lag_buesegment(
+        startpunkt=startpunkt,
+        startrretning=startrretning,
+        radius=radius,
+        svingfortegn=1.0 if kryssprodukt > 0.0 else -1.0,
+        svingvinkel=svingvinkel,
+        punktavstand=punktavstand,
+    )
+    if not buepunkter:
+        return _legg_til_rett_avslutning(startpunkt, sluttpunkt, punktavstand)
+
+    buepunkter[-1] = sluttpunkt
+    return buepunkter
+
+
+def _legg_til_rett_avslutning(
+    startpunkt: Punkt,
+    sluttpunkt: Punkt,
+    maks_segmentlengde: float,
+) -> List[Punkt]:
+    avstand = math.dist(startpunkt, sluttpunkt)
+    if avstand == 0.0:
+        return []
+
+    antall_delsegmenter = max(1, int(math.ceil(avstand / max(maks_segmentlengde, 1.0))))
+    return [
+        (
+            startpunkt[0] + (sluttpunkt[0] - startpunkt[0]) * (indeks / antall_delsegmenter),
+            startpunkt[1] + (sluttpunkt[1] - startpunkt[1]) * (indeks / antall_delsegmenter),
+        )
+        for indeks in range(1, antall_delsegmenter + 1)
+    ]
 
 
 def _velg_svingfortegn(
