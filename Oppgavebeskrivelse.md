@@ -89,7 +89,7 @@ Kystkontur skal alltid følge 4 kanter, slik at det lages en øy hver gang.
 Det skal være én sammenhengende kystlinje som går rundt hele øya.
 Ved generering av hjørnepunkter skal disse ikke være plassert helt ut i hjørnet, men tilfeldig inntil 30%inn fra hjørnekanten.
 For de kantene som skal ha kystkontur, lag kystkontur som en rett linje 300m fra ytterkanten av bbox.
-Linje deles i to, og i første linjedeling forskyves midtpunktet med en svært stor andel av linjelengden til tilfeldig høyre eller venstre, slik at øya ikke blir for firkantet. Prosessen gjentas deretter rekursivt for de nye linjesegmentene for å skape ujevnheter, inntil linjeavstand er <1m. Sjekk for at linjen ikke krysser bbox eller kystkontur.
+Linje deles i to, og midtpunktet forskyves fra linjen med en tilfeldig verdi < Linjeavtande/3. Prosessen gjentas rekursivt for de nye linjesegmentene for å skape ujevnheter, inntil linjeavstand er <1m. Sjekk for at linjen ikke krysser bbox eller kystkontur.
 Lag et lukket polygon av havet med kystkontur
 
 ### N50-StedsnavnTekst (3D-Punkt)
@@ -97,7 +97,7 @@ N50-StedsnavnTekst er objekttypen som beskriver tettsted. Dette er en 3D-punkt.
 Området skal ha minst to StedsnavnTekst, jo større område - jo flere tettsteder.
 Minst ett kyst-tettsted skal ligge 200m ved kysten, med høyde=15m.
 Minst ett innlands-tettsted lengst fra kysten, med høyde=avstand til kyst / 20.
-Det skal være tettsteder ved kysten med tilfeldig avstand mellom 2km og 6km. Tettstedene ved kysten har høyde=15m
+Det skal være tettsteder ved kysten med tilfeldig avstand mellom 2km og 6km. Tettsteder ved kysten har høyde=15m
 Generer flere innlands-tettsteder slik at avstanden mellom tettsteder har avstand mellom 2km og 6km.  Høyde=avstand til kyst / 20.
 
 ### N50-VegSenterlinje (3D-linje)
@@ -112,8 +112,6 @@ Vegen bygges iterativt fra start mot slutt som en polyline.
 Hver iterasjon 
  - beregnes retningen fra nåværende punkt mot målet.
  - enten et buesegment med tilfeldig radius og tilfeldig segmentlengde, eller et rett-segment med tilfeldig lengde. Buesegment og rett-segment har minimum og maksimumverdi.
- - Maksimal lengde på rett veg-segment = lengde på bue-segment
- - La segmentlengde for hvert buesegment beregnes som segmentets radius * (tilfeldig tall i intervallet [1.0 , 1.6])
  - hvis buesegmentet: sirkelbue som er tangent til forrige retning. Radiusens fortegn bestemmes av om vegen må dreie mot høyre eller venstre for å nærme seg målretningen/endepunktet. 
  - hvis rett-segment: Sjekk om antall påfølgende rettstrekk er overskredet, da velges buesegment
  - Fra et segment til et annet skal det være tangentkontinuitet.
@@ -123,7 +121,7 @@ Hver iterasjon
 ### N50-Terrengpunkt (3D-Punkt)
 Tettsteder ligger i daler. Nå skal det genereres punkter for fjell.
 Dette skjer gjennom flere itterasjoner:
-#### Nivå1:
+#### Nivå1: Finn lavtliggende punkter
 - Plukk ut terrengpunkter som senere skal brukes til å generere TIN:
 - Bruk parametre for avstand mellom Tettsteder, som er et intervall. Bruk parameter for nederste grense av intervallet som nivåets-punkt-tetthet. 
 - Langs Kystlinje plukk ut punkt slik at avstanden mellom punktene er oppunder nivåets-punkt-tetthet.
@@ -131,30 +129,36 @@ Dette skjer gjennom flere itterasjoner:
 - Alle Tettstedene er med i utvalget av terrengpunkter
 - Lagre alle terrengpunktene i Nivå1, med høyde.
 Bygg TIN
-#### Nivå2:
+#### Nivå2: Definer noen få fjellkjerner
 - I hver TIN-trekant generer ett terrengpunkt i miten av TIN-trekanten. 
 - Terrengpunkt-høyden = (TIN-interpolerte høyden for midtpunktet) + Tilfeldig tall i intervallet [100, 400]
+- Terrengpunkt for fjellkjerner må ligge >1000 meter fra både nærmeste tettsted og nærmeste senterlinjeveg.
 Bygg TIN
-#### Nivå3:
-For hver trekant genereres nye punkter inne i trekanten.
+#### Nivå3: Definer flate områder rundt Tettsteder
+Generer 6 punkter 500m fra tettstedsenter i tilfeldig retning fra tettstedsenter.
+Disse punkter har Høyde = tettstedhøyde +/- tilfeldig tall i intervallet [1, 10].
+Bygg TIN 
+### Nivå4: Fortetting
+For hver trekant genereres nye punkter inne i trekanten. Punktenes plassering i TIN-trekanten er tilfeldig
 AntallPunktPrTrekant=5
 Høyden på nye punkt er TIN-interpolert høyde for x,y + tilfeldig verdi med MaxAvvikFraTIN=3.0
-Bygg TIN
-#### Nivå4:
-AntallPunktPrTrekant=3
-MaxAvvikFraTIN=1.0
+Begrensning på helning næ tettsteder: For trekanter nærmere Tettsted enn 1000m; 
 Bygg TIN
 #### Nivå5:
 AntallPunktPrTrekant=3
-MaxAvvikFraTIN=0.4
+MaxAvvikFraTIN=1.0
 Bygg TIN
 #### Nivå6:
+AntallPunktPrTrekant=3
+MaxAvvikFraTIN=0.4
+Bygg TIN
+#### Nivå7:
 AntallPunktPrTrekant=3
 MaxAvvikFraTIN=0.1
 Bygg TIN
 
 ### N50-Hoydekurve (2D-kurve)
-Generer TIN.
+Lagre TIN i N50.
 Generer Hoydekurver med ekvidistande=20m basert på TIN.
 
 ----------------------------------------------------------------------------
@@ -399,7 +403,11 @@ Lever en ryddig repository-struktur med:
 # 💡 Ideer til neste versjon
 Ser at det er litt få tettsteder ved kysten. Nå som dette er en øy hver gang, kan du foreslå en bedre algoritme som gir moderat flere tettsteder ved kysten. 
 
-Det ser ut som at det er riksveger som tar tettstedene i en sekvens. Foreslå en algoritme som skaper noen flere riksveger mellom tettstedene
+Det ser ut som at det er riksveger som tar tettsteder i en sekvens. Foreslå en algoritme som skaper noen flere riksveger mellom tettsteder
+
+Linker:
+N50: Produktspesifikasjon for N50 Raster
+https://register.geonorge.no/data/documents/produktspesifikasjoner_N50%20Raster_v1_produktspesifikasjon-kv-n50-raster-versjon20150401_.pdf
 
 
 

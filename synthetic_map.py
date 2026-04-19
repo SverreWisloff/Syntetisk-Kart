@@ -9,8 +9,11 @@ from typing import Any, Dict, Optional
 
 from syntetisk_kart.synthetic_n50_module import (
     generer_havflate,
+    generer_hoydekurve,
     generer_kystkontur,
     generer_stedsnavntekst,
+    generer_terrengpunkt,
+    generer_tin,
     generer_vegsenterlinje,
 )
 
@@ -23,6 +26,9 @@ STANDARD_KONFIGURASJON: Dict[str, Any] = {
     "havlag_navn": "n50_havflate",
     "stedsnavn_lag_navn": "n50_stedsnavntekst",
     "veglag_navn": "n50_vegsenterlinje",
+    "terrenglag_navn": "n50_terrengpunkt",
+    "tinlag_navn": "n50_tin",
+    "hoydekurve_lag_navn": "n50_hoydekurve",
     "tilgjengelige_sider": ["vest", "ost", "sor", "nord"],
     "min_antall_sider": 4,
     "maks_antall_sider": 4,
@@ -85,6 +91,24 @@ STANDARD_KONFIGURASJON: Dict[str, Any] = {
     "veg_maks_delstegvinkel": 0.08,
     "veg_sluttbue_maks_forhold": 3.0,
     "veg_hoyde_avviksfaktor": 40.0,
+    "terreng_seed_offset": 3000,
+    "terreng_niva1_punktavstand": 2000.0,
+    "terreng_min_punktavstand": 35.0,
+    "terreng_fjellkjerner_antall": 4,
+    "terreng_fjell_min_kystavstand": 1200.0,
+    "terreng_fjell_min_tettstedavstand": 1500.0,
+    "terreng_fjell_hoyde_min": 100.0,
+    "terreng_fjell_hoyde_maks": 400.0,
+    "terreng_fjell_spredning_min": 1200.0,
+    "terreng_fjell_spredning_maks": 2500.0,
+    "terreng_flate_radius": 500.0,
+        "terreng_flate_antall": 6,
+    "terreng_flate_hoydeavvik_min": 1.0,
+    "terreng_flate_hoydeavvik_maks": 10.0,
+    "terreng_fortetting_antall": [5, 3, 3, 3],
+    "terreng_fortetting_maksavvik": [3.0, 1.0, 0.4, 0.1],
+    "hoydekurve_ekvidistanse": 20.0,
+    "hoydekurve_min_lengde": 50.0,
 }
 
 
@@ -121,6 +145,9 @@ def generer_n50_kystkontur(
     havflate = generer_havflate(kystkontur, konfig)
     stedsnavntekst = generer_stedsnavntekst(kystkontur, havflate, konfig)
     vegsenterlinje = generer_vegsenterlinje(stedsnavntekst, kystkontur, havflate, konfig)
+    terrengpunkt = generer_terrengpunkt(kystkontur, havflate, stedsnavntekst, vegsenterlinje, konfig)
+    tin = generer_tin(terrengpunkt, havflate, konfig)
+    hoydekurve = generer_hoydekurve(terrengpunkt, havflate, konfig)
 
     output_sti = Path(output_katalog)
     output_sti.mkdir(parents=True, exist_ok=True)
@@ -132,11 +159,17 @@ def generer_n50_kystkontur(
     havflate.to_file(filsti, layer=str(konfig["havlag_navn"]), driver="GPKG", mode="a")
     stedsnavntekst.to_file(filsti, layer=str(konfig["stedsnavn_lag_navn"]), driver="GPKG", mode="a")
     vegsenterlinje.to_file(filsti, layer=str(konfig["veglag_navn"]), driver="GPKG", mode="a")
+    terrengpunkt.to_file(filsti, layer=str(konfig["terrenglag_navn"]), driver="GPKG", mode="a")
+    tin.to_file(filsti, layer=str(konfig["tinlag_navn"]), driver="GPKG", mode="a")
+    hoydekurve.to_file(filsti, layer=str(konfig["hoydekurve_lag_navn"]), driver="GPKG", mode="a")
     return {
         "kystkontur": kystkontur,
         "havflate": havflate,
         "stedsnavntekst": stedsnavntekst,
         "vegsenterlinje": vegsenterlinje,
+        "terrengpunkt": terrengpunkt,
+        "tin": tin,
+        "hoydekurve": hoydekurve,
         "filsti": filsti,
         "seed": konfig["seed"],
     }
@@ -149,15 +182,13 @@ def main() -> None:
     parser.add_argument("--output", default=".")
     args = parser.parse_args()
 
-    resultat = generer_n50_kystkontur(
-        output_katalog=args.output,
-        bruker_konfig={"seed": args.seed},
-    )
-    antall_linjer = len(resultat["kystkontur"])
-    antall_veger = len(resultat["vegsenterlinje"])
-    print(
-        f"Genererte {antall_linjer} kystlinjer og {antall_veger} veger i {resultat['filsti']} med seed {resultat['seed']}"
-    )
+    # Sett fast seed for reproduserbarhet
+    fast_seed = 12345
+    bruker_konfig = {"seed": fast_seed}
+    print("Starter full generering og lagring av N50.gpkg...")
+    result = generer_n50_kystkontur(output_katalog=args.output, bruker_konfig=bruker_konfig)
+    print(f"N50.gpkg skrevet til: {result['filsti']}")
+    print(f"Antall terrengpunkt: {len(result['terrengpunkt'])}")
 
 
 if __name__ == "__main__":

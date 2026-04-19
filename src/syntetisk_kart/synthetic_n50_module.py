@@ -7,7 +7,8 @@ from typing import Dict, List, Optional, Tuple
 
 import geopandas as gpd
 import numpy as np
-from shapely.geometry import LineString, Point, Polygon, box
+from shapely.geometry import LineString, MultiLineString, MultiPoint, Point, Polygon, box
+from shapely.ops import linemerge, triangulate, unary_union
 
 Punkt = Tuple[float, float]
 SIDE_REKKEFOLGE = ["vest", "nord", "ost", "sor"]
@@ -19,7 +20,17 @@ def generer_kystkontur(konfig: Dict[str, object]) -> gpd.GeoDataFrame:
     bbox_polygon = box(*bbox_verdier)
     tilfeldig = np.random.default_rng(int(konfig["seed"]))
     valgte_sider = _velg_sammenhengende_sider(konfig, tilfeldig)
-    kystlinje = _lag_sammenhengende_kystlinje(bbox_polygon, valgte_sider, konfig, tilfeldig)
+    maks_forsok = 10
+    for forsok in range(1, maks_forsok + 1):
+        try:
+            kystlinje = _lag_sammenhengende_kystlinje(bbox_polygon, valgte_sider, konfig, tilfeldig)
+            break
+        except ValueError as e:
+            print(f"Kystlinje-generering feilet i forsøk {forsok}: {e}")
+            if forsok == maks_forsok:
+                raise
+    else:
+        raise ValueError("Klarte ikke å generere en gyldig sammenhengende kystlinje etter flere forsøk.")
 
     return gpd.GeoDataFrame(
         [{"sider": ",".join(valgte_sider), "geometry": kystlinje}],
@@ -136,9 +147,11 @@ def generer_vegsenterlinje(
     eksisterende_veger: List[LineString] = []
     vegobjekter: List[dict] = []
 
+    print("Starter generer_vegsenterlinje: lager tettsteder-liste")
     for fra_indeks, til_indeks in forbindelser:
         fra_tettsted = tettsteder[fra_indeks]
         til_tettsted = tettsteder[til_indeks]
+        print(f"Bygger veg fra {fra_tettsted['navn']} til {til_tettsted['navn']}")
         try:
             veg2d = _lag_veglinje_mellom_tettsteder(
                 startpunkt=fra_tettsted["punkt"],
@@ -150,6 +163,7 @@ def generer_vegsenterlinje(
                 tilfeldig=tilfeldig,
             )
         except ValueError:
+            print(f"Feil under bygging av veg fra {fra_tettsted['navn']} til {til_tettsted['navn']}")
             continue
 
         veg3d = _lag_3d_veglinje(
@@ -168,6 +182,7 @@ def generer_vegsenterlinje(
                 "geometry": veg3d,
             }
         )
+    print("Ferdig hovedløkke for veger")
 
     if not vegobjekter and len(tettsteder) >= 2:
         for fra_indeks in range(len(tettsteder) - 1):
@@ -198,6 +213,486 @@ def generer_vegsenterlinje(
                 break
 
     return gpd.GeoDataFrame(vegobjekter, geometry="geometry", crs=konfig["crs"])
+
+
+def generer_terrengpunkt(
+    kystkontur: gpd.GeoDataFrame,
+    havflate: gpd.GeoDataFrame,
+    stedsnavntekst: gpd.GeoDataFrame,
+    vegsenterlinje: gpd.GeoDataFrame,
+    konfig: Dict[str, object],
+) -> gpd.GeoDataFrame:
+    """Generer N50-terrengpunkt som 3D-punkter over landarealet."""
+    tilfeldig = np.random.default_rng(int(konfig["seed"]) + int(konfig["terreng_seed_offset"]))
+    bbox_polygon = box(*tuple(konfig["bbox"]))
+    landgeometri = bbox_polygon.difference(havflate.geometry.iloc[0]).buffer(0)
+    kystlinje = kystkontur.geometry.iloc[0]
+    punktavstand = float(konfig["terreng_niva1_punktavstand"])
+    minste_avstand = float(konfig["terreng_min_punktavstand"])
+
+    tettsteder = [
+        {
+            "navn": rad["navn"],
+            "punkt": Point(rad.geometry.x, rad.geometry.y),
+            "hoyde": float(rad["hoyde"]),
+        }
+        for _, rad in stedsnavntekst.iterrows()
+    ]
+    fjellkjerner = _lag_fjellkjerner(landgeometri, kystlinje, tettsteder, vegsenterlinje, konfig, tilfeldig)
+
+    terrengpunktdata: List[dict] = []
+    brukte_punkter: List[Point] = []
+    total_teller = 0
+    type_teller = {"tettsted": 0, "kyst": 0, "veg": 0, "fjellkjerne": 0, "flate": 0, "fortetting": 0}
+
+    print("Starter generering av terrengpunkter: tettsted")
+    for tettsted in tettsteder:
+        _legg_til_terrengpunkt(
+            terrengpunktdata,
+            brukte_punkter,
+            tettsted["punkt"],
+            tettsted["hoyde"],
+            "tettsted",
+            0.0,
+        )
+        type_teller["tettsted"] += 1
+        total_teller += 1
+    print("Ferdig tettsted, starter kyst")
+
+    # Kystpunkter: bruk alltid høyde = 0 (havnivå)
+    for kystpunkt in _lag_linjeprover(kystlinje, punktavstand):
+        _legg_til_terrengpunkt(
+            terrengpunktdata,
+            brukte_punkter,
+            kystpunkt,
+            0.0,
+            "kyst",
+            minste_avstand,
+        )
+        type_teller["kyst"] += 1
+        total_teller += 1
+    print("Ferdig kyst, starter veg")
+
+    # Vegpunkter: bruk Z-verdi fra vegpunktet (alle punkter på vegsenterlinje skal ha Z)
+    veg_punktavstand = punktavstand / 2.0
+    for veggeometri in vegsenterlinje.geometry:
+        for vegpunkt in _lag_linjeprover(veggeometri, veg_punktavstand):
+            # Sikre at vegpunkt har Z-verdi, ellers bruk terrengmodell
+            if hasattr(vegpunkt, "z"):
+                hoyde = float(vegpunkt.z)
+            else:
+                hoyde = _beregn_terrenghoyde(
+                    vegpunkt,
+                    kystlinje,
+                    tettsteder,
+                    fjellkjerner,
+                    konfig,
+                )
+            _legg_til_terrengpunkt(
+                terrengpunktdata,
+                brukte_punkter,
+                vegpunkt,
+                hoyde,
+                "veg",
+                minste_avstand,
+            )
+            type_teller["veg"] += 1
+            total_teller += 1
+    print("Ferdig veg, starter fjellkjerne")
+
+    for kjerne in fjellkjerner:
+        hoyde = _beregn_terrenghoyde(kjerne["punkt"], kystlinje, tettsteder, fjellkjerner, konfig)
+        _legg_til_terrengpunkt(
+            terrengpunktdata,
+            brukte_punkter,
+            kjerne["punkt"],
+            hoyde,
+            "fjellkjerne",
+            minste_avstand,
+        )
+        type_teller["fjellkjerne"] += 1
+        total_teller += 1
+    print("Ferdig fjellkjerne, starter flate")
+
+    radius = float(konfig["terreng_flate_radius"])
+    avvik_min = float(konfig["terreng_flate_hoydeavvik_min"])
+    avvik_maks = float(konfig["terreng_flate_hoydeavvik_maks"])
+    antall_flatepunkt = int(konfig.get("terreng_flate_antall", 6))
+    for tettsted in tettsteder:
+        for _ in range(antall_flatepunkt):
+            vinkel = float(tilfeldig.uniform(0.0, math.tau))
+            punkt = Point(
+                tettsted["punkt"].x + math.cos(vinkel) * radius,
+                tettsted["punkt"].y + math.sin(vinkel) * radius,
+            )
+            if not landgeometri.covers(punkt):
+                continue
+            hoyde = float(tettsted["hoyde"] + tilfeldig.uniform(-avvik_min, avvik_maks))
+            _legg_til_terrengpunkt(
+                terrengpunktdata,
+                brukte_punkter,
+                punkt,
+                hoyde,
+                "flate",
+                min(minste_avstand, radius * 0.2),
+            )
+            type_teller["flate"] += 1
+            total_teller += 1
+    # Fortetting er deaktivert etter ønske fra bruker
+
+    print("Antall terrengpunkter per type:")
+    for t, antall in type_teller.items():
+        print(f"  {t}: {antall}")
+    return gpd.GeoDataFrame(terrengpunktdata, geometry="geometry", crs=konfig["crs"])
+
+
+def generer_tin(
+    terrengpunkt: gpd.GeoDataFrame,
+    havflate: gpd.GeoDataFrame,
+    konfig: Dict[str, object],
+) -> gpd.GeoDataFrame:
+    """Bygg TIN-triangelpolygoner fra terrengpunktene."""
+    bbox_polygon = box(*tuple(konfig["bbox"]))
+    landgeometri = bbox_polygon.difference(havflate.geometry.iloc[0]).buffer(0)
+    punktdata = _terrengdata_fra_gdf(terrengpunkt)
+    trekanter = _bygg_tin_objekter_fra_punktdata(punktdata, landgeometri)
+    objekter = [
+        {
+            "trekant_id": indeks + 1,
+            "min_hoyde": float(min(trekant["hoyder"])),
+            "maks_hoyde": float(max(trekant["hoyder"])),
+            "geometry": trekant["polygon"],
+        }
+        for indeks, trekant in enumerate(trekanter)
+    ]
+    return gpd.GeoDataFrame(objekter, geometry="geometry", crs=konfig["crs"])
+
+
+def generer_hoydekurve(
+    terrengpunkt: gpd.GeoDataFrame,
+    havflate: gpd.GeoDataFrame,
+    konfig: Dict[str, object],
+) -> gpd.GeoDataFrame:
+    """Generer høydekurver med fast ekvidistanse basert på TIN."""
+    bbox_polygon = box(*tuple(konfig["bbox"]))
+    landgeometri = bbox_polygon.difference(havflate.geometry.iloc[0]).buffer(0)
+    punktdata = _terrengdata_fra_gdf(terrengpunkt)
+    trekanter = _bygg_tin_objekter_fra_punktdata(punktdata, landgeometri)
+    if not trekanter:
+        return gpd.GeoDataFrame(columns=["hoyde", "geometry"], geometry="geometry", crs=konfig["crs"])
+
+    ekvidistanse = float(konfig["hoydekurve_ekvidistanse"])
+    minste_lengde = float(konfig["hoydekurve_min_lengde"])
+    minimum_hoyde = min(float(punkt["hoyde"]) for punkt in punktdata)
+    maksimum_hoyde = max(float(punkt["hoyde"]) for punkt in punktdata)
+    startniva = math.ceil(minimum_hoyde / ekvidistanse) * ekvidistanse
+    sluttniva = math.floor(maksimum_hoyde / ekvidistanse) * ekvidistanse
+
+    segmenter_per_hoyde: Dict[float, List[LineString]] = {}
+    for trekant in trekanter:
+        laveste = min(trekant["hoyder"])
+        hoyeste = max(trekant["hoyder"])
+        nivaa = max(startniva, math.ceil(laveste / ekvidistanse) * ekvidistanse)
+        siste = min(sluttniva, math.floor(hoyeste / ekvidistanse) * ekvidistanse)
+        while nivaa <= siste + 1e-9:
+            segment = _lag_hoydekurvesegment_for_trekant(trekant["koordinater"], trekant["hoyder"], nivaa)
+            if segment is not None and segment.length > 0.0:
+                segmenter_per_hoyde.setdefault(float(nivaa), []).append(segment)
+            nivaa += ekvidistanse
+
+    hoydekurver: List[dict] = []
+    for hoyde, segmenter in segmenter_per_hoyde.items():
+        sammenslatt = linemerge(unary_union(segmenter))
+        for linje in _ekstraher_linjer_fra_geometri(sammenslatt):
+            klippet = linje.intersection(landgeometri)
+            for gyldig_linje in _ekstraher_linjer_fra_geometri(klippet):
+                if gyldig_linje.length >= minste_lengde and gyldig_linje.is_valid:
+                    hoydekurver.append({"hoyde": float(hoyde), "geometry": gyldig_linje})
+
+    return gpd.GeoDataFrame(hoydekurver, geometry="geometry", crs=konfig["crs"])
+
+
+def _terrengdata_fra_gdf(terrengpunkt: gpd.GeoDataFrame) -> List[dict]:
+    return [
+        {
+            "x": float(rad.geometry.x),
+            "y": float(rad.geometry.y),
+            "hoyde": float(rad["hoyde"]),
+        }
+        for _, rad in terrengpunkt.iterrows()
+    ]
+
+
+def _lag_fjellkjerner(
+    landgeometri,
+    kystlinje: LineString,
+    tettsteder: List[dict],
+    vegsenterlinje: gpd.GeoDataFrame,
+    konfig: Dict[str, object],
+    tilfeldig: np.random.Generator,
+) -> List[dict]:
+    kjerner: List[dict] = []
+    min_kystavstand = float(konfig["terreng_fjell_min_kystavstand"])
+    min_tettstedavstand = float(konfig["terreng_fjell_min_tettstedavstand"])
+    min_vegavstand = min_tettstedavstand  # Bruk samme som tettsted, evt. lag egen parameter
+
+    for _ in range(int(konfig["terreng_fjellkjerner_antall"]) * 20):
+        if len(kjerner) >= int(konfig["terreng_fjellkjerner_antall"]):
+            break
+        kandidat = _lag_tilfeldig_landpunkt(landgeometri, konfig, tilfeldig)
+        if kandidat is None or kandidat.distance(kystlinje) < min_kystavstand:
+            continue
+        if any(kandidat.distance(tettsted["punkt"]) < min_tettstedavstand for tettsted in tettsteder):
+            continue
+        if any(kandidat.distance(kjerne["punkt"]) < min_tettstedavstand for kjerne in kjerner):
+            continue
+        # Sjekk avstand til alle vegsenterlinjer
+        if any(kandidat.distance(veglinje) < min_vegavstand for veglinje in vegsenterlinje.geometry):
+            continue
+
+        kjerner.append(
+            {
+                "punkt": kandidat,
+                "hoyde": float(
+                    tilfeldig.uniform(
+                        float(konfig["terreng_fjell_hoyde_min"]),
+                        float(konfig["terreng_fjell_hoyde_maks"]),
+                    )
+                ),
+                "spredning": float(
+                    tilfeldig.uniform(
+                        float(konfig["terreng_fjell_spredning_min"]),
+                        float(konfig["terreng_fjell_spredning_maks"]),
+                    )
+                ),
+            }
+        )
+    return kjerner
+
+
+def _beregn_terrenghoyde(
+    punkt: Point,
+    kystlinje: LineString,
+    tettsteder: List[dict],
+    fjellkjerner: List[dict],
+    konfig: Dict[str, object],
+) -> float:
+    hoyde = max(
+        float(konfig["tettsted_kyst_hoyde"]),
+        punkt.distance(kystlinje) / float(konfig["tettsted_hoyde_divisor"]),
+    )
+
+    for fjellkjerne in fjellkjerner:
+        avstand = punkt.distance(fjellkjerne["punkt"])
+        spredning = max(1.0, float(fjellkjerne["spredning"]))
+        hoyde += float(fjellkjerne["hoyde"]) * math.exp(-(avstand * avstand) / (2.0 * spredning * spredning))
+
+    flat_radius = float(konfig["terreng_flate_radius"])
+    for tettsted in tettsteder:
+        avstand = punkt.distance(tettsted["punkt"])
+        if avstand < flat_radius:
+            andel = 1.0 - (avstand / flat_radius)
+            hoyde = (hoyde * (1.0 - andel)) + (float(tettsted["hoyde"]) * andel)
+
+    return max(0.0, hoyde)
+
+
+def _legg_til_terrengpunkt(
+    terrengpunktdata: List[dict],
+    brukte_punkter: List[Point],
+    punkt: Point,
+    hoyde: float,
+    kilde: str,
+    minste_avstand: float,
+) -> bool:
+    punkt2d = Point(float(punkt.x), float(punkt.y))
+    if minste_avstand > 0.0 and any(punkt2d.distance(brukt_punkt) < minste_avstand for brukt_punkt in brukte_punkter):
+        return False
+
+    # Sikre at alle punkter får 3D-geometri (Point(x, y, z))
+    x = float(punkt.x)
+    y = float(punkt.y)
+    z = float(hoyde)
+    punkt3d = Point(x, y, z)
+    terrengpunktdata.append(
+        {
+            "kilde": kilde,
+            "x": x,
+            "y": y,
+            "hoyde": z,
+            "geometry": punkt3d,
+        }
+    )
+    brukte_punkter.append(Point(x, y))
+    return True
+
+
+def _lag_linjeprover(linje: LineString, punktavstand: float) -> List[Point]:
+    if linje.length == 0.0:
+        return []
+    avstander = list(np.arange(0.0, linje.length, max(punktavstand, 1.0)))
+    avstander.append(linje.length)
+    return [linje.interpolate(float(avstand)) for avstand in avstander]
+
+
+def _lag_fortettingspunkter(
+    punktdata: List[dict],
+    landgeometri,
+    kystlinje: LineString,
+    tettsteder: List[dict],
+    fjellkjerner: List[dict],
+    konfig: Dict[str, object],
+    antall_per_trekant: int,
+    maks_avvik: float,
+    flat_radius: float,
+    minste_avstand: float,
+    tilfeldig: np.random.Generator,
+) -> List[dict]:
+    trekanter = _bygg_tin_objekter_fra_punktdata(punktdata, landgeometri)
+    brukte_punkter = [Point(float(punkt["x"]), float(punkt["y"])) for punkt in punktdata]
+    nye_punkter: List[dict] = []
+
+    for trekant in trekanter:
+        for _ in range(antall_per_trekant):
+            kandidat = _tilfeldig_punkt_i_trekant(trekant["koordinater"], tilfeldig)
+            if not landgeometri.covers(kandidat):
+                continue
+            if any(kandidat.distance(brukt_punkt) < minste_avstand for brukt_punkt in brukte_punkter):
+                continue
+
+            interpolert_hoyde = _interpoler_hoyde_i_trekant(
+                (float(kandidat.x), float(kandidat.y)),
+                trekant["koordinater"],
+                trekant["hoyder"],
+            )
+            modellhoyde = _beregn_terrenghoyde(kandidat, kystlinje, tettsteder, fjellkjerner, konfig)
+            hoyde = (interpolert_hoyde + modellhoyde) / 2.0 + float(tilfeldig.uniform(-maks_avvik, maks_avvik))
+            naermeste_tettsted = _finn_naermeste_tettsted(kandidat, tettsteder)
+            if naermeste_tettsted is not None:
+                avstand = kandidat.distance(naermeste_tettsted["punkt"])
+                if avstand < flat_radius:
+                    andel = 1.0 - (avstand / flat_radius)
+                    hoyde = (hoyde * (1.0 - andel)) + (float(naermeste_tettsted["hoyde"]) * andel)
+
+            nye_punkter.append(
+                {
+                    "kilde": "fortetting",
+                    "x": float(kandidat.x),
+                    "y": float(kandidat.y),
+                    "hoyde": float(max(0.0, hoyde)),
+                    "geometry": Point(float(kandidat.x), float(kandidat.y), float(max(0.0, hoyde))),
+                }
+            )
+            brukte_punkter.append(Point(float(kandidat.x), float(kandidat.y)))
+    return nye_punkter
+
+
+def _finn_naermeste_tettsted(kandidat: Point, tettsteder: List[dict]) -> Optional[dict]:
+    if not tettsteder:
+        return None
+    return min(tettsteder, key=lambda tettsted: kandidat.distance(tettsted["punkt"]))
+
+
+def _bygg_tin_objekter_fra_punktdata(punktdata: List[dict], landgeometri) -> List[dict]:
+    if len(punktdata) < 3:
+        return []
+
+    multipunkt = MultiPoint([Point(float(punkt["x"]), float(punkt["y"])) for punkt in punktdata])
+    hoydeoppslag = {
+        _koordinatnokkel((float(punkt["x"]), float(punkt["y"]))): float(punkt["hoyde"])
+        for punkt in punktdata
+    }
+    trekanter: List[dict] = []
+
+    for trekant in triangulate(multipunkt):
+        if not landgeometri.covers(trekant.representative_point()):
+            continue
+        koordinater = [(float(x), float(y)) for x, y in list(trekant.exterior.coords)[:-1]]
+        if len(koordinater) != 3:
+            continue
+        nøkler = [_koordinatnokkel(koordinat) for koordinat in koordinater]
+        if not all(nokkel in hoydeoppslag for nokkel in nøkler):
+            continue
+        hoyder = [hoydeoppslag[nokkel] for nokkel in nøkler]
+        trekanter.append({"polygon": trekant, "koordinater": koordinater, "hoyder": hoyder})
+
+    return trekanter
+
+
+def _koordinatnokkel(koordinat: Punkt) -> Tuple[float, float]:
+    return (round(float(koordinat[0]), 6), round(float(koordinat[1]), 6))
+
+
+def _tilfeldig_punkt_i_trekant(koordinater: List[Punkt], tilfeldig: np.random.Generator) -> Point:
+    a, b, c = koordinater
+    u = float(tilfeldig.random())
+    v = float(tilfeldig.random())
+    if u + v > 1.0:
+        u = 1.0 - u
+        v = 1.0 - v
+    x = a[0] + (b[0] - a[0]) * u + (c[0] - a[0]) * v
+    y = a[1] + (b[1] - a[1]) * u + (c[1] - a[1]) * v
+    return Point(x, y)
+
+
+def _interpoler_hoyde_i_trekant(punkt: Punkt, koordinater: List[Punkt], hoyder: List[float]) -> float:
+    (x1, y1), (x2, y2), (x3, y3) = koordinater
+    determinant = ((y2 - y3) * (x1 - x3)) + ((x3 - x2) * (y1 - y3))
+    if abs(determinant) < 1e-9:
+        return float(sum(hoyder) / len(hoyder))
+
+    l1 = (((y2 - y3) * (punkt[0] - x3)) + ((x3 - x2) * (punkt[1] - y3))) / determinant
+    l2 = (((y3 - y1) * (punkt[0] - x3)) + ((x1 - x3) * (punkt[1] - y3))) / determinant
+    l3 = 1.0 - l1 - l2
+    return float((hoyder[0] * l1) + (hoyder[1] * l2) + (hoyder[2] * l3))
+
+
+def _lag_hoydekurvesegment_for_trekant(
+    koordinater: List[Punkt],
+    hoyder: List[float],
+    nivaa: float,
+) -> Optional[LineString]:
+    krysspunkter: List[Punkt] = []
+    for startindeks, sluttindeks in ((0, 1), (1, 2), (2, 0)):
+        startpunkt = koordinater[startindeks]
+        sluttpunkt = koordinater[sluttindeks]
+        starthoyde = float(hoyder[startindeks])
+        slutthoyde = float(hoyder[sluttindeks])
+
+        if abs(starthoyde - slutthoyde) < 1e-9:
+            continue
+        if (nivaa < min(starthoyde, slutthoyde)) or (nivaa > max(starthoyde, slutthoyde)):
+            continue
+
+        andel = (nivaa - starthoyde) / (slutthoyde - starthoyde)
+        if 0.0 <= andel <= 1.0:
+            punkt = (
+                startpunkt[0] + (sluttpunkt[0] - startpunkt[0]) * andel,
+                startpunkt[1] + (sluttpunkt[1] - startpunkt[1]) * andel,
+            )
+            if not any(math.dist(punkt, eksisterende) < 1e-6 for eksisterende in krysspunkter):
+                krysspunkter.append(punkt)
+
+    if len(krysspunkter) == 2:
+        return LineString(krysspunkter)
+    if len(krysspunkter) > 2:
+        return LineString(krysspunkter[:2])
+    return None
+
+
+def _ekstraher_linjer_fra_geometri(geometri) -> List[LineString]:
+    if geometri is None or geometri.is_empty:
+        return []
+    if isinstance(geometri, LineString):
+        return [geometri]
+    if isinstance(geometri, MultiLineString):
+        return list(geometri.geoms)
+    if hasattr(geometri, "geoms"):
+        linjer: List[LineString] = []
+        for delgeometri in geometri.geoms:
+            linjer.extend(_ekstraher_linjer_fra_geometri(delgeometri))
+        return linjer
+    return []
 
 
 def _bygg_vegforbindelser(
@@ -336,7 +831,6 @@ def _bygg_iterativ_veglinje(
                 svingfortegn=svingfortegn,
                 svingvinkel=svingvinkel,
                 punktavstand=float(konfig["veg_bue_punktavstand"]),
-                maks_delstegvinkel=float(konfig["veg_maks_delstegvinkel"]),
             )
             if not buepunkter:
                 break
@@ -370,8 +864,6 @@ def _bygg_iterativ_veglinje(
                 sluttpunkt=malpunkt,
                 startrretning=forrige_retning,
                 punktavstand=float(konfig["veg_bue_punktavstand"]),
-                maks_buelengde=float(konfig["veg_maks_bueradius"]) * float(konfig["veg_bue_lengdefaktor_maks"]) * float(konfig["veg_sluttbue_maks_forhold"]),
-                maks_delstegvinkel=float(konfig["veg_maks_delstegvinkel"]),
             )
         )
 
@@ -456,7 +948,6 @@ def _lag_buesegment(
     svingfortegn: float,
     svingvinkel: float,
     punktavstand: float,
-    maks_delstegvinkel: float,
 ) -> Tuple[List[Punkt], Punkt, Punkt]:
     if radius <= 0.0 or svingvinkel <= 0.0 or startrretning == (0.0, 0.0):
         return [], startpunkt, startrretning
@@ -469,11 +960,7 @@ def _lag_buesegment(
     startvektor = (startpunkt[0] - sentrum[0], startpunkt[1] - sentrum[1])
     totalvinkel = svingvinkel * svingfortegn
     buelengde = abs(radius * svingvinkel)
-    antall_delsteg = max(
-        3,
-        int(math.ceil(buelengde / max(punktavstand, 1.0))),
-        int(math.ceil(abs(totalvinkel) / max(maks_delstegvinkel, 1e-6))),
-    )
+    antall_delsteg = max(3, int(math.ceil(buelengde / max(punktavstand, 1.0))))
 
     punkter: List[Punkt] = []
     for indeks in range(1, antall_delsteg + 1):
@@ -481,10 +968,7 @@ def _lag_buesegment(
         rotert = _roter_vektor(startvektor, totalvinkel * andel)
         punkter.append((sentrum[0] + rotert[0], sentrum[1] + rotert[1]))
 
-    if len(punkter) == 1:
-        sluttretning = _normaliser_vektor((punkter[-1][0] - startpunkt[0], punkter[-1][1] - startpunkt[1]))
-    else:
-        sluttretning = _normaliser_vektor((punkter[-1][0] - punkter[-2][0], punkter[-1][1] - punkter[-2][1]))
+    sluttretning = _normaliser_vektor(_roter_vektor(startrretning, totalvinkel))
     return punkter, punkter[-1], sluttretning
 
 
@@ -493,8 +977,6 @@ def _lag_avsluttende_tangentbue(
     sluttpunkt: Punkt,
     startrretning: Punkt,
     punktavstand: float,
-    maks_buelengde: float,
-    maks_delstegvinkel: float,
 ) -> List[Punkt]:
     avstand = math.dist(startpunkt, sluttpunkt)
     if avstand == 0.0:
@@ -516,37 +998,6 @@ def _lag_avsluttende_tangentbue(
         return _legg_til_rett_avslutning(startpunkt, sluttpunkt, punktavstand)
 
     radius = avstand / (2.0 * abs(sinus_halvvinkel))
-    buelengde = radius * svingvinkel
-    if buelengde > maks_buelengde:
-        antall_delbuer = max(2, int(math.ceil(buelengde / max(maks_buelengde, punktavstand))))
-        alle_punkter: List[Punkt] = []
-        gjeldende_start = startpunkt
-        gjeldende_retning = startrretning
-        for indeks in range(1, antall_delbuer + 1):
-            andel = indeks / antall_delbuer
-            delslutt = (
-                startpunkt[0] + (sluttpunkt[0] - startpunkt[0]) * andel,
-                startpunkt[1] + (sluttpunkt[1] - startpunkt[1]) * andel,
-            )
-            delpunkter = _lag_avsluttende_tangentbue(
-                startpunkt=gjeldende_start,
-                sluttpunkt=delslutt,
-                startrretning=gjeldende_retning,
-                punktavstand=punktavstand,
-                maks_buelengde=maks_buelengde,
-                maks_delstegvinkel=maks_delstegvinkel,
-            )
-            if not delpunkter:
-                return _legg_til_rett_avslutning(startpunkt, sluttpunkt, punktavstand)
-            alle_punkter.extend(delpunkter)
-            if len(delpunkter) == 1:
-                gjeldende_retning = _normaliser_vektor((delpunkter[-1][0] - gjeldende_start[0], delpunkter[-1][1] - gjeldende_start[1]))
-            else:
-                gjeldende_retning = _normaliser_vektor((delpunkter[-1][0] - delpunkter[-2][0], delpunkter[-1][1] - delpunkter[-2][1]))
-            gjeldende_start = delslutt
-        alle_punkter[-1] = sluttpunkt
-        return alle_punkter
-
     buepunkter, _, _ = _lag_buesegment(
         startpunkt=startpunkt,
         startrretning=startrretning,
@@ -554,7 +1005,6 @@ def _lag_avsluttende_tangentbue(
         svingfortegn=1.0 if kryssprodukt > 0.0 else -1.0,
         svingvinkel=svingvinkel,
         punktavstand=punktavstand,
-        maks_delstegvinkel=maks_delstegvinkel,
     )
     if not buepunkter:
         return _legg_til_rett_avslutning(startpunkt, sluttpunkt, punktavstand)
@@ -625,10 +1075,9 @@ def _fyll_hoyder_rekursivt(
 
     midtindeks = (startindeks + sluttindeks) // 2
     if hoyder[midtindeks] is None:
-        lengde = math.dist(punkter2d[startindeks], punkter2d[sluttindeks])
+        # Sett høyde 100% linjært mellom endepunktene
         grunnhoyde = (float(hoyder[startindeks]) + float(hoyder[sluttindeks])) / 2.0
-        maks_avvik = lengde / float(konfig["veg_hoyde_avviksfaktor"])
-        hoyder[midtindeks] = grunnhoyde + float(tilfeldig.uniform(-maks_avvik, maks_avvik))
+        hoyder[midtindeks] = grunnhoyde
 
     _fyll_hoyder_rekursivt(punkter2d, hoyder, startindeks, midtindeks, konfig, tilfeldig)
     _fyll_hoyder_rekursivt(punkter2d, hoyder, midtindeks, sluttindeks, konfig, tilfeldig)
@@ -983,14 +1432,11 @@ def _del_segment_rekursivt(
 
     midtpunkt = ((startpunkt[0] + sluttpunkt[0]) / 2.0, (startpunkt[1] + sluttpunkt[1]) / 2.0)
     maks_toveis_avvik = min(segmentlengde / avviksfaktor, maks_innoveravvik, maks_utoveravvik)
-
     if er_forste_deling:
-        grunnavvik = min(segmentlengde * 1.9, maks_toveis_avvik)
         fortegn = float(tilfeldig.choice([-1.0, 1.0]))
-        avvik = grunnavvik * fortegn
+        avvik = maks_toveis_avvik * fortegn
     else:
         avvik = float(tilfeldig.uniform(-maks_toveis_avvik, maks_toveis_avvik))
-
     forskyvet_midtpunkt = (midtpunkt[0] + normal[0] * avvik, midtpunkt[1] + normal[1] * avvik)
 
     venstre = _del_segment_rekursivt(

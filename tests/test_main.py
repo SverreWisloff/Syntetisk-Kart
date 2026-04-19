@@ -125,6 +125,47 @@ def test_kystlinje_far_hjornepunkt_inntil_tretti_prosent_inn(tmp_path: Path) -> 
     assert (slutt_x, slutt_y) != (500300.0, 7033700.0)
 
 
+def test_generer_n50_terrengpunkt_og_tin(tmp_path: Path) -> None:
+    resultat = generer_n50_kystkontur(
+        output_katalog=tmp_path,
+        bruker_konfig={
+            "bbox": TEST_BBOX,
+            "seed": 9,
+            "valgte_sider": ["vest", "nord", "ost"],
+        },
+    )
+
+    terrengpunkt = resultat["terrengpunkt"]
+    tin = resultat["tin"]
+
+    assert len(terrengpunkt) >= 20
+    assert len(tin) >= 10
+    assert set(terrengpunkt.geom_type) == {"Point"}
+    assert terrengpunkt.is_valid.all()
+    assert terrengpunkt.geometry.apply(lambda geometri: geometri.has_z).all()
+    assert terrengpunkt["hoyde"].max() > terrengpunkt["hoyde"].min()
+    assert set(tin.geom_type).issubset({"Polygon"})
+    assert tin.is_valid.all()
+
+
+def test_generer_n50_hoydekurver_fra_tin(tmp_path: Path) -> None:
+    resultat = generer_n50_kystkontur(
+        output_katalog=tmp_path,
+        bruker_konfig={
+            "bbox": TEST_BBOX,
+            "seed": 9,
+            "valgte_sider": ["vest", "nord", "ost"],
+        },
+    )
+
+    hoydekurver = resultat["hoydekurve"]
+
+    assert len(hoydekurver) >= 1
+    assert set(hoydekurver.geom_type) == {"LineString"}
+    assert hoydekurver.is_valid.all()
+    assert (hoydekurver["hoyde"] % 20.0 == 0.0).all()
+
+
 def test_generer_n50_vegsenterlinje_gir_gyldige_3d_linjer(tmp_path: Path) -> None:
     resultat = generer_n50_kystkontur(
         output_katalog=tmp_path,
