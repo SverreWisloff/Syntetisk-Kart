@@ -6,9 +6,11 @@ Se også [Oppgavebeskrivelse.md](Oppgavebeskrivelse.md) for full oppgavebeskrive
 
 ## Siste skjermdump
 
-![Siste skjermdump av kartresultat](skjermdumper/Skjermbilde%202026-04-19%20kl.%2020.45.33.png)
+![Siste skjermdump av kartresultat](skjermdumper/Skjermbilde%202026-04-19%20kl.%2021.24.45.png)
 
 Eksempel på syntetisk kart med kystkontur, tettsteder, vegsenterlinjer, terrengpunkter og glattede høydekurver.
+
+**Merk:** Fra og med 19.04.2026 er all seed-fiksering fjernet. Hver kjøring gir nå et unikt, ikke-deterministisk resultat.
 
 ## Status
 
