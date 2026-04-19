@@ -336,6 +336,7 @@ def _bygg_iterativ_veglinje(
                 svingfortegn=svingfortegn,
                 svingvinkel=svingvinkel,
                 punktavstand=float(konfig["veg_bue_punktavstand"]),
+                maks_delstegvinkel=float(konfig["veg_maks_delstegvinkel"]),
             )
             if not buepunkter:
                 break
@@ -369,6 +370,8 @@ def _bygg_iterativ_veglinje(
                 sluttpunkt=malpunkt,
                 startrretning=forrige_retning,
                 punktavstand=float(konfig["veg_bue_punktavstand"]),
+                maks_buelengde=float(konfig["veg_maks_bueradius"]) * float(konfig["veg_bue_lengdefaktor_maks"]) * float(konfig["veg_sluttbue_maks_forhold"]),
+                maks_delstegvinkel=float(konfig["veg_maks_delstegvinkel"]),
             )
         )
 
@@ -453,6 +456,7 @@ def _lag_buesegment(
     svingfortegn: float,
     svingvinkel: float,
     punktavstand: float,
+    maks_delstegvinkel: float,
 ) -> Tuple[List[Punkt], Punkt, Punkt]:
     if radius <= 0.0 or svingvinkel <= 0.0 or startrretning == (0.0, 0.0):
         return [], startpunkt, startrretning
@@ -465,7 +469,11 @@ def _lag_buesegment(
     startvektor = (startpunkt[0] - sentrum[0], startpunkt[1] - sentrum[1])
     totalvinkel = svingvinkel * svingfortegn
     buelengde = abs(radius * svingvinkel)
-    antall_delsteg = max(3, int(math.ceil(buelengde / max(punktavstand, 1.0))))
+    antall_delsteg = max(
+        3,
+        int(math.ceil(buelengde / max(punktavstand, 1.0))),
+        int(math.ceil(abs(totalvinkel) / max(maks_delstegvinkel, 1e-6))),
+    )
 
     punkter: List[Punkt] = []
     for indeks in range(1, antall_delsteg + 1):
@@ -473,7 +481,10 @@ def _lag_buesegment(
         rotert = _roter_vektor(startvektor, totalvinkel * andel)
         punkter.append((sentrum[0] + rotert[0], sentrum[1] + rotert[1]))
 
-    sluttretning = _normaliser_vektor(_roter_vektor(startrretning, totalvinkel))
+    if len(punkter) == 1:
+        sluttretning = _normaliser_vektor((punkter[-1][0] - startpunkt[0], punkter[-1][1] - startpunkt[1]))
+    else:
+        sluttretning = _normaliser_vektor((punkter[-1][0] - punkter[-2][0], punkter[-1][1] - punkter[-2][1]))
     return punkter, punkter[-1], sluttretning
 
 
@@ -482,6 +493,8 @@ def _lag_avsluttende_tangentbue(
     sluttpunkt: Punkt,
     startrretning: Punkt,
     punktavstand: float,
+    maks_buelengde: float,
+    maks_delstegvinkel: float,
 ) -> List[Punkt]:
     avstand = math.dist(startpunkt, sluttpunkt)
     if avstand == 0.0:
@@ -503,6 +516,37 @@ def _lag_avsluttende_tangentbue(
         return _legg_til_rett_avslutning(startpunkt, sluttpunkt, punktavstand)
 
     radius = avstand / (2.0 * abs(sinus_halvvinkel))
+    buelengde = radius * svingvinkel
+    if buelengde > maks_buelengde:
+        antall_delbuer = max(2, int(math.ceil(buelengde / max(maks_buelengde, punktavstand))))
+        alle_punkter: List[Punkt] = []
+        gjeldende_start = startpunkt
+        gjeldende_retning = startrretning
+        for indeks in range(1, antall_delbuer + 1):
+            andel = indeks / antall_delbuer
+            delslutt = (
+                startpunkt[0] + (sluttpunkt[0] - startpunkt[0]) * andel,
+                startpunkt[1] + (sluttpunkt[1] - startpunkt[1]) * andel,
+            )
+            delpunkter = _lag_avsluttende_tangentbue(
+                startpunkt=gjeldende_start,
+                sluttpunkt=delslutt,
+                startrretning=gjeldende_retning,
+                punktavstand=punktavstand,
+                maks_buelengde=maks_buelengde,
+                maks_delstegvinkel=maks_delstegvinkel,
+            )
+            if not delpunkter:
+                return _legg_til_rett_avslutning(startpunkt, sluttpunkt, punktavstand)
+            alle_punkter.extend(delpunkter)
+            if len(delpunkter) == 1:
+                gjeldende_retning = _normaliser_vektor((delpunkter[-1][0] - gjeldende_start[0], delpunkter[-1][1] - gjeldende_start[1]))
+            else:
+                gjeldende_retning = _normaliser_vektor((delpunkter[-1][0] - delpunkter[-2][0], delpunkter[-1][1] - delpunkter[-2][1]))
+            gjeldende_start = delslutt
+        alle_punkter[-1] = sluttpunkt
+        return alle_punkter
+
     buepunkter, _, _ = _lag_buesegment(
         startpunkt=startpunkt,
         startrretning=startrretning,
@@ -510,6 +554,7 @@ def _lag_avsluttende_tangentbue(
         svingfortegn=1.0 if kryssprodukt > 0.0 else -1.0,
         svingvinkel=svingvinkel,
         punktavstand=punktavstand,
+        maks_delstegvinkel=maks_delstegvinkel,
     )
     if not buepunkter:
         return _legg_til_rett_avslutning(startpunkt, sluttpunkt, punktavstand)

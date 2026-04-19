@@ -397,4 +397,12 @@ Lever en ryddig repository-struktur med:
 - `.gitignore` som ignorerer miljø- og låsefiler
 
 # 💡 Ideer til neste versjon
+Kysten er preget av en firkant.
+Forslag til løsning: Når linjen deles i to, og midtpunktet forskyves fra linjen med en tilfeldig verdi, bør denne verdien være større. Er du enig?
+
+Ser at det er litt få tettsteder ved kysten. Nå som dette er en øy hver gang. Foreslå e
+
+Det ser ut som at det er riksveger som tar tettstedene i en sekvens. Foreslå en algoritme som skaper noen flere riksveger mellom tettstedene
+
+
 

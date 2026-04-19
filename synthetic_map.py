@@ -77,6 +77,8 @@ STANDARD_KONFIGURASJON: Dict[str, Any] = {
     "veg_min_svingvinkel": 0.35,
     "veg_retnings_toleranse": 0.08,
     "veg_bue_punktavstand": 25.0,
+    "veg_maks_delstegvinkel": 0.08,
+    "veg_sluttbue_maks_forhold": 3.0,
     "veg_hoyde_avviksfaktor": 40.0,
 }
 

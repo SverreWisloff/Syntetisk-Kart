@@ -181,10 +181,11 @@ def test_veger_far_glatte_buer_med_tangentkontinuitet(tmp_path: Path) -> None:
             differanse = (neste - forrige + math.pi) % (2 * math.pi) - math.pi
             vinkelhopp.append(abs(differanse))
 
-        assert max(vinkelhopp, default=0.0) <= 2.1
+        assert max(vinkelhopp, default=0.0) <= 0.18
         assert max(segmentlengder, default=0.0) <= 410.0
-        assert max(vinkelhopp[-3:], default=0.0) <= 0.35
+        assert max(vinkelhopp[-3:], default=0.0) <= 0.18
         assert max(segmentlengder[-3:], default=0.0) <= 80.0
+        assert sum(segmentlengder[-6:]) <= 1200.0
 
 
 def test_generer_n50_kystkontur_blir_tilfeldig_uten_seed(tmp_path: Path) -> None:
