@@ -18,7 +18,7 @@ def generer_stedsnavntekst(
     konfig: Dict[str, object],
 ) -> gpd.GeoDataFrame:
     """Generer N50-stedsnavntekst som 3D-punkter for tettsteder."""
-    tilfeldig = np.random.default_rng(int(konfig["seed"]) + int(konfig["stedsnavn_seed_offset"]))
+    tilfeldig = np.random.default_rng()
     bbox_polygon = box(*tuple(konfig["bbox"]))
     landgeometri = bbox_polygon.difference(havflate.geometry.iloc[0])
     kystlinje = kystkontur.geometry.iloc[0]
@@ -79,7 +79,7 @@ def generer_kystkontur(konfig: Dict[str, object]) -> gpd.GeoDataFrame:
     print("Starter generering av kystkontur...")
     bbox_verdier = tuple(konfig["bbox"])
     bbox_polygon = box(*bbox_verdier)
-    tilfeldig = np.random.default_rng(int(konfig["seed"]))
+    tilfeldig = np.random.default_rng()
     valgte_sider = _velg_sammenhengende_sider(konfig, tilfeldig)
     maks_forsok = 10
     for forsok in range(1, maks_forsok + 1):
@@ -131,7 +131,7 @@ def generer_vegsenterlinje(
     konfig: Dict[str, object],
 ) -> gpd.GeoDataFrame:
     """Generer N50-vegsenterlinjer som 3D-linjer mellom tettsteder."""
-    tilfeldig = np.random.default_rng(int(konfig["seed"]) + int(konfig["veg_seed_offset"]))
+    tilfeldig = np.random.default_rng()
     bbox_polygon = box(*tuple(konfig["bbox"]))
     landgeometri = bbox_polygon.difference(havflate.geometry.iloc[0]).buffer(0)
     kystlinje = kystkontur.geometry.iloc[0]
@@ -225,7 +225,7 @@ def generer_terrengpunkt(
     konfig: Dict[str, object],
 ) -> gpd.GeoDataFrame:
     """Generer N50-terrengpunkt som 3D-punkter over landarealet."""
-    tilfeldig = np.random.default_rng(int(konfig["seed"]) + int(konfig["terreng_seed_offset"]))
+    tilfeldig = np.random.default_rng()
     bbox_polygon = box(*tuple(konfig["bbox"]))
     landgeometri = bbox_polygon.difference(havflate.geometry.iloc[0]).buffer(0)
     kystlinje = kystkontur.geometry.iloc[0]
@@ -346,7 +346,7 @@ def generer_terrengpunkt(
     punkt_tetthet = float(konfig["tettsted_avstand_min"])
     tin_trekanter = _bygg_tin_objekter_fra_punktdata(terrengpunktdata, landgeometri)
     fortettingspunkter = []
-    tilfeldig = np.random.default_rng(int(konfig["seed"]) + int(konfig["terreng_seed_offset"]) + 42)
+    tilfeldig = np.random.default_rng()
     for trekant in tin_trekanter:
         koordinater = trekant["koordinater"]
         hoyder = trekant["hoyder"]
