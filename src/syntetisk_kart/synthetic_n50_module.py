@@ -316,11 +316,11 @@ def generer_terrengpunkt(
         total_teller += 1
     print("Ferdig fjellkjerne, starter flate")
 
-    radius = float(konfig["terreng_flate_radius"])
-    avvik_min = float(konfig["terreng_flate_hoydeavvik_min"])
-    avvik_maks = float(konfig["terreng_flate_hoydeavvik_maks"])
+
+    # Nivå 3: Flatepunkter rundt tettstedene
+    radius = 500.0  # meters, iht. spesifikasjon
     for tettsted in tettsteder:
-        for _ in range(4):
+        for _ in range(6):
             vinkel = float(tilfeldig.uniform(0.0, math.tau))
             punkt = Point(
                 tettsted["punkt"].x + math.cos(vinkel) * radius,
@@ -328,7 +328,7 @@ def generer_terrengpunkt(
             )
             if not landgeometri.covers(punkt):
                 continue
-            hoyde = float(tettsted["hoyde"] + tilfeldig.uniform(-avvik_min, avvik_maks))
+            hoyde = float(tettsted["hoyde"] + tilfeldig.uniform(-10.0, 10.0))
             _legg_til_terrengpunkt(
                 terrengpunktdata,
                 brukte_punkter,
