@@ -101,14 +101,15 @@ STANDARD_KONFIGURASJON: Dict[str, Any] = {
     "terreng_fjell_hoyde_maks": 400.0,
     "terreng_fjell_spredning_min": 1200.0,
     "terreng_fjell_spredning_maks": 2500.0,
-    "terreng_flate_radius": 500.0,
-        "terreng_flate_antall": 6,
+    "terreng_flate_radius": 1000.0,
     "terreng_flate_hoydeavvik_min": 1.0,
     "terreng_flate_hoydeavvik_maks": 10.0,
     "terreng_fortetting_antall": [5, 3, 3, 3],
     "terreng_fortetting_maksavvik": [3.0, 1.0, 0.4, 0.1],
     "hoydekurve_ekvidistanse": 20.0,
     "hoydekurve_min_lengde": 50.0,
+    # Antall iterasjoner for glatting av høydekurver (Chaikin)
+    "hoydekurve_glatt_iterasjoner": 2,
 }
 
 

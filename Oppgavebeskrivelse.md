@@ -121,7 +121,7 @@ Hver iterasjon
 ### N50-Terrengpunkt (3D-Punkt)
 Tettsteder ligger i daler. Nå skal det genereres punkter for fjell.
 Dette skjer gjennom flere itterasjoner:
-#### Nivå1: Finn lavtliggende punkter
+#### Nivå1: Finn lavtliggende punkter (nivåets-punkt-tetthet=tettsted_avstand_min)
 - Plukk ut terrengpunkter som senere skal brukes til å generere TIN:
 - Bruk parametre for avstand mellom Tettsteder, som er et intervall. Bruk parameter for nederste grense av intervallet som nivåets-punkt-tetthet. 
 - Langs Kystlinje plukk ut punkt slik at avstanden mellom punktene er oppunder nivåets-punkt-tetthet.
@@ -138,28 +138,30 @@ Bygg TIN
 Generer 6 punkter 500m fra tettstedsenter i tilfeldig retning fra tettstedsenter.
 Disse punkter har Høyde = tettstedhøyde +/- tilfeldig tall i intervallet [1, 10].
 Bygg TIN 
-### Nivå4: Fortetting
-For hver trekant genereres nye punkter inne i trekanten. Punktenes plassering i TIN-trekanten er tilfeldig
-AntallPunktPrTrekant=5
-Høyden på nye punkt er TIN-interpolert høyde for x,y + tilfeldig verdi med MaxAvvikFraTIN=3.0
-Begrensning på helning næ tettsteder: For trekanter nærmere Tettsted enn 1000m; 
-Bygg TIN
-#### Nivå5:
-AntallPunktPrTrekant=3
-MaxAvvikFraTIN=1.0
-Bygg TIN
-#### Nivå6:
-AntallPunktPrTrekant=3
-MaxAvvikFraTIN=0.4
-Bygg TIN
-#### Nivå7:
-AntallPunktPrTrekant=3
-MaxAvvikFraTIN=0.1
+### Nivå4: Fortetting - jevnere størrelse på trekanter
+- Bruk samme nivåets-punkt-tetthet som Nivå0
+- For alle trekanter som har to lengste sider med sidelengde>nivåets-punkt-tetthet, og korteste sidelengde>nivåets-punkt-tetthet/4, lages et Terrengpunkt for fortetting i trekantens midtpunkt.
+- Høyden på nye punkt er TIN-interpolert høyde for x,y + tilfeldig verdi for hvert punkt: [-10 , 30.0]
+- Bygg TIN4 basert på alle terrengpunktene, lagre TIN4 til N50
+### Nivå5: Fortetting (nivåets-punkt-tetthet=tettsted_avstand_min/4)
+- Fortett punkter langs kyst og veg:
+- nivåets-punkt-tetthet=tettsted_avstand_min/4. 
+- Langs Kystlinje fortett jevnt med tre terrengpunkter mellom eksisterende kyst-terrengpunkter.
+- Langs Veg fortett jevnt med tre terrengpunkter mellom eksisterende veg-terrengpunkter.
+- For hver trekant genereres nye punkter inne i trekanten. Punktenes plassering i TIN-trekanten er tilfeldig, men ingen punkter skal være nærmere hverandre enn nivåets-punkt-tetthet.
+MaksAntallPunktPrTrekant = 5.
+Høyden på nye punkt er TIN-interpolert høyde for x,y + tilfeldig verdi for hvert punkt:
+dersom punktet er nærmere veg enn 100m,      brukes intervallet [-2.0 , 2.0],
+dersom punktet er nærmere tettsted enn 500m, brukes intervallet [-2.0 , 2.0], 
+dersom punktet er nærmere kyst enn 100m,     brukes intervallet [0.0 , 2.0], 
+ellers                                       brukes intervallet [-10 , 30.0]
 Bygg TIN
 
 ### N50-Hoydekurve (2D-kurve)
 Lagre TIN i N50.
 Generer Hoydekurver med ekvidistande=20m basert på TIN.
+Slett høydekurver kortere enn 200m
+Glatt høydekurvene.
 
 ----------------------------------------------------------------------------
 **HIT HAR JEG KOMMET**
@@ -401,9 +403,11 @@ Lever en ryddig repository-struktur med:
 - `.gitignore` som ignorerer miljø- og låsefiler
 
 # 💡 Ideer til neste versjon
-Ser at det er litt få tettsteder ved kysten. Nå som dette er en øy hver gang, kan du foreslå en bedre algoritme som gir moderat flere tettsteder ved kysten. 
+Print ut litt mer status i terminalvinduet på første del, feks kystkontur
+Print ut antall TIN-trekanter når det er klart
 
-Det ser ut som at det er riksveger som tar tettsteder i en sekvens. Foreslå en algoritme som skaper noen flere riksveger mellom tettsteder
+
+
 
 Linker:
 N50: Produktspesifikasjon for N50 Raster

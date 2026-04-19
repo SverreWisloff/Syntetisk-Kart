@@ -1,6 +1,5 @@
-"""Generering av syntetiske N50-objekter."""
 
-from __future__ import annotations
+"""Generering av syntetiske N50-objekter."""
 
 import math
 from typing import Dict, List, Optional, Tuple
@@ -12,54 +11,6 @@ from shapely.ops import linemerge, triangulate, unary_union
 
 Punkt = Tuple[float, float]
 SIDE_REKKEFOLGE = ["vest", "nord", "ost", "sor"]
-
-
-def generer_kystkontur(konfig: Dict[str, object]) -> gpd.GeoDataFrame:
-    """Generer én sammenhengende N50-kystkontur innenfor angitt bbox."""
-    bbox_verdier = tuple(konfig["bbox"])
-    bbox_polygon = box(*bbox_verdier)
-    tilfeldig = np.random.default_rng(int(konfig["seed"]))
-    valgte_sider = _velg_sammenhengende_sider(konfig, tilfeldig)
-    maks_forsok = 10
-    for forsok in range(1, maks_forsok + 1):
-        try:
-            kystlinje = _lag_sammenhengende_kystlinje(bbox_polygon, valgte_sider, konfig, tilfeldig)
-            break
-        except ValueError as e:
-            print(f"Kystlinje-generering feilet i forsøk {forsok}: {e}")
-            if forsok == maks_forsok:
-                raise
-    else:
-        raise ValueError("Klarte ikke å generere en gyldig sammenhengende kystlinje etter flere forsøk.")
-
-    return gpd.GeoDataFrame(
-        [{"sider": ",".join(valgte_sider), "geometry": kystlinje}],
-        geometry="geometry",
-        crs=konfig["crs"],
-    )
-
-
-def generer_havflate(kystkontur: gpd.GeoDataFrame, konfig: Dict[str, object]) -> gpd.GeoDataFrame:
-    """Generer en lukket havflate basert på kystkonturen."""
-    bbox_polygon = box(*tuple(konfig["bbox"]))
-    kystlinje = kystkontur.geometry.iloc[0]
-    valgte_sider = str(kystkontur.iloc[0]["sider"]).split(",")
-
-    if len(valgte_sider) == len(SIDE_REKKEFOLGE) and kystlinje.is_ring:
-        landflate = Polygon(kystlinje.coords)
-        havgeometri = bbox_polygon.difference(landflate)
-    else:
-        havgeometri = _lag_havpolygon_fra_kystlinje(kystlinje, valgte_sider, bbox_polygon.bounds)
-
-    if not havgeometri.is_valid:
-        havgeometri = havgeometri.buffer(0)
-
-    return gpd.GeoDataFrame(
-        [{"objekttype": "N50-Havflate", "geometry": havgeometri}],
-        geometry="geometry",
-        crs=konfig["crs"],
-    )
-
 
 def generer_stedsnavntekst(
     kystkontur: gpd.GeoDataFrame,
@@ -119,7 +70,58 @@ def generer_stedsnavntekst(
             }
         )
 
+    print(f"Stedsnavn generert: {[t['navn'] for t in tettsteder]}")
     return gpd.GeoDataFrame(tettsteder, geometry="geometry", crs=konfig["crs"])
+
+
+def generer_kystkontur(konfig: Dict[str, object]) -> gpd.GeoDataFrame:
+    """Generer én sammenhengende N50-kystkontur innenfor angitt bbox."""
+    print("Starter generering av kystkontur...")
+    bbox_verdier = tuple(konfig["bbox"])
+    bbox_polygon = box(*bbox_verdier)
+    tilfeldig = np.random.default_rng(int(konfig["seed"]))
+    valgte_sider = _velg_sammenhengende_sider(konfig, tilfeldig)
+    maks_forsok = 10
+    for forsok in range(1, maks_forsok + 1):
+        try:
+            kystlinje = _lag_sammenhengende_kystlinje(bbox_polygon, valgte_sider, konfig, tilfeldig)
+            break
+        except ValueError as e:
+            print(f"Kystlinje-generering feilet i forsøk {forsok}: {e}")
+            if forsok == maks_forsok:
+                raise
+    else:
+        raise ValueError("Klarte ikke å generere en gyldig sammenhengende kystlinje etter flere forsøk.")
+
+    print(f"Kystkontur generert med {len(kystlinje.coords)} punkter og sider: {valgte_sider}")
+    return gpd.GeoDataFrame(
+        [{"sider": ",".join(valgte_sider), "geometry": kystlinje}],
+        geometry="geometry",
+        crs=konfig["crs"],
+    )
+
+
+def generer_havflate(kystkontur: gpd.GeoDataFrame, konfig: Dict[str, object]) -> gpd.GeoDataFrame:
+    """Generer en lukket havflate basert på kystkonturen."""
+    bbox_polygon = box(*tuple(konfig["bbox"]))
+    kystlinje = kystkontur.geometry.iloc[0]
+    valgte_sider = str(kystkontur.iloc[0]["sider"]).split(",")
+
+    if len(valgte_sider) == len(SIDE_REKKEFOLGE) and kystlinje.is_ring:
+        landflate = Polygon(kystlinje.coords)
+        havgeometri = bbox_polygon.difference(landflate)
+    else:
+        havgeometri = _lag_havpolygon_fra_kystlinje(kystlinje, valgte_sider, bbox_polygon.bounds)
+
+    if not havgeometri.is_valid:
+        havgeometri = havgeometri.buffer(0)
+
+    return gpd.GeoDataFrame(
+        [{"objekttype": "N50-Havflate", "geometry": havgeometri}],
+        geometry="geometry",
+        crs=konfig["crs"],
+    )
+
 
 
 def generer_vegsenterlinje(
@@ -317,9 +319,8 @@ def generer_terrengpunkt(
     radius = float(konfig["terreng_flate_radius"])
     avvik_min = float(konfig["terreng_flate_hoydeavvik_min"])
     avvik_maks = float(konfig["terreng_flate_hoydeavvik_maks"])
-    antall_flatepunkt = int(konfig.get("terreng_flate_antall", 6))
     for tettsted in tettsteder:
-        for _ in range(antall_flatepunkt):
+        for _ in range(4):
             vinkel = float(tilfeldig.uniform(0.0, math.tau))
             punkt = Point(
                 tettsted["punkt"].x + math.cos(vinkel) * radius,
@@ -338,8 +339,149 @@ def generer_terrengpunkt(
             )
             type_teller["flate"] += 1
             total_teller += 1
-    # Fortetting er deaktivert etter ønske fra bruker
 
+
+    print("Ferdig flate, starter fortetting nivå 4")
+    # Nivå 4: Fortetting - jevnere størrelse på trekanter
+    punkt_tetthet = float(konfig["tettsted_avstand_min"])
+    tin_trekanter = _bygg_tin_objekter_fra_punktdata(terrengpunktdata, landgeometri)
+    fortettingspunkter = []
+    tilfeldig = np.random.default_rng(int(konfig["seed"]) + int(konfig["terreng_seed_offset"]) + 42)
+    for trekant in tin_trekanter:
+        koordinater = trekant["koordinater"]
+        hoyder = trekant["hoyder"]
+        a = math.dist(koordinater[0], koordinater[1])
+        b = math.dist(koordinater[1], koordinater[2])
+        c = math.dist(koordinater[2], koordinater[0])
+        sidelengder = sorted([a, b, c])
+        if sidelengder[1] > punkt_tetthet and sidelengder[2] > punkt_tetthet and sidelengder[0] > punkt_tetthet / 4.0:
+            mx = sum([p[0] for p in koordinater]) / 3.0
+            my = sum([p[1] for p in koordinater]) / 3.0
+            midtpunkt = Point(mx, my)
+            if not landgeometri.covers(midtpunkt):
+                continue
+            interpolert_hoyde = _interpoler_hoyde_i_trekant((mx, my), koordinater, hoyder)
+            hoyde = interpolert_hoyde + tilfeldig.uniform(-10.0, 30.0)
+            fortettingspunkter.append({
+                "kilde": "fortetting",
+                "x": mx,
+                "y": my,
+                "hoyde": float(max(0.0, hoyde)),
+                "geometry": Point(mx, my, float(max(0.0, hoyde))),
+            })
+            type_teller["fortetting"] += 1
+            total_teller += 1
+    terrengpunktdata.extend(fortettingspunkter)
+    print(f"Ferdig fortetting nivå 4, antall fortettingspunkter nivå 4: {len(fortettingspunkter)}")
+
+    print("Starter fortetting nivå 5 (langs kyst og veg)")
+    # Nivå 5: Fortetting (tettsted_avstand_min/4)
+    punkt_tetthet_n5 = float(konfig["tettsted_avstand_min"]) / 4.0
+    # Fortett langs kyst
+    kystpunkter = [p for p in terrengpunktdata if p["kilde"] == "kyst"]
+    nye_kystpunkter = []
+    for i in range(len(kystpunkter) - 1):
+        p1 = kystpunkter[i]
+        p2 = kystpunkter[i + 1]
+        for j in range(1, 4):
+            t = j / 4.0
+            x = p1["x"] * (1 - t) + p2["x"] * t
+            y = p1["y"] * (1 - t) + p2["y"] * t
+            if not landgeometri.covers(Point(x, y)):
+                continue
+            hoyde = _interpoler_hoyde_i_trekant((x, y), [ (p1["x"], p1["y"]), (p2["x"], p2["y"]), (x, y) ], [p1["hoyde"], p2["hoyde"], (p1["hoyde"] + p2["hoyde"]) / 2])
+            hoyde += tilfeldig.uniform(0.0, 2.0)
+            nye_kystpunkter.append({
+                "kilde": "fortetting",
+                "x": x,
+                "y": y,
+                "hoyde": float(max(0.0, hoyde)),
+                "geometry": Point(x, y, float(max(0.0, hoyde))),
+            })
+            type_teller["fortetting"] += 1
+            total_teller += 1
+    terrengpunktdata.extend(nye_kystpunkter)
+    print(f"Ferdig fortetting nivå 5 kyst, antall nye kystpunkter: {len(nye_kystpunkter)}")
+
+    # Fortett langs veg
+    vegpunkter = [p for p in terrengpunktdata if p["kilde"] == "veg"]
+    nye_vegpunkter = []
+    for i in range(len(vegpunkter) - 1):
+        p1 = vegpunkter[i]
+        p2 = vegpunkter[i + 1]
+        for j in range(1, 4):
+            t = j / 4.0
+            x = p1["x"] * (1 - t) + p2["x"] * t
+            y = p1["y"] * (1 - t) + p2["y"] * t
+            if not landgeometri.covers(Point(x, y)):
+                continue
+            hoyde = _interpoler_hoyde_i_trekant((x, y), [ (p1["x"], p1["y"]), (p2["x"], p2["y"]), (x, y) ], [p1["hoyde"], p2["hoyde"], (p1["hoyde"] + p2["hoyde"]) / 2])
+            hoyde += tilfeldig.uniform(-2.0, 2.0)
+            nye_vegpunkter.append({
+                "kilde": "fortetting",
+                "x": x,
+                "y": y,
+                "hoyde": float(max(0.0, hoyde)),
+                "geometry": Point(x, y, float(max(0.0, hoyde))),
+            })
+            type_teller["fortetting"] += 1
+            total_teller += 1
+    terrengpunktdata.extend(nye_vegpunkter)
+    print(f"Ferdig fortetting nivå 5 veg, antall nye vegpunkter: {len(nye_vegpunkter)}")
+
+    # Fortetting i trekanter (maks 5 pr trekant, avstandskrav)
+    tin_trekanter_n5 = _bygg_tin_objekter_fra_punktdata(terrengpunktdata, landgeometri)
+
+    from shapely.strtree import STRtree
+
+    brukte_punkter = [Point(float(p["x"]), float(p["y"])) for p in terrengpunktdata]
+    print("Starter fortetting nivå 5 i trekanter (med STRtree)")
+    tree = STRtree(brukte_punkter)
+    for trekant in tin_trekanter_n5:
+        generert = 0
+        forsok = 0
+        maks_forsok = 50
+        while generert < 5 and forsok < maks_forsok:
+            kandidat = _tilfeldig_punkt_i_trekant(trekant["koordinater"], tilfeldig)
+            forsok += 1
+            if not landgeometri.covers(kandidat):
+                continue
+            # Bruk STRtree for nærhetssjekk
+            nære = tree.query(kandidat.buffer(punkt_tetthet_n5))
+            if any(isinstance(n, Point) and kandidat.distance(n) < punkt_tetthet_n5 for n in nære):
+                continue
+            interpolert_hoyde = _interpoler_hoyde_i_trekant((kandidat.x, kandidat.y), trekant["koordinater"], trekant["hoyder"])
+            # Høydeavvik etter nærhet
+            min_vegavstand = min([kandidat.distance(Point(p["x"], p["y"])) for p in vegpunkter], default=99999)
+            min_tettstedavstand = min([kandidat.distance(Point(p["x"], p["y"])) for p in terrengpunktdata if p["kilde"] == "tettsted"], default=99999)
+            min_kystavstand = min([kandidat.distance(Point(p["x"], p["y"])) for p in kystpunkter], default=99999)
+            if min_vegavstand < 100:
+                avvik = tilfeldig.uniform(-2.0, 2.0)
+            elif min_tettstedavstand < 500:
+                avvik = tilfeldig.uniform(-2.0, 2.0)
+            elif min_kystavstand < 100:
+                avvik = tilfeldig.uniform(0.0, 2.0)
+            else:
+                avvik = tilfeldig.uniform(-10.0, 30.0)
+            hoyde = interpolert_hoyde + avvik
+            terrengpunktdata.append({
+                "kilde": "fortetting",
+                "x": float(kandidat.x),
+                "y": float(kandidat.y),
+                "hoyde": float(max(0.0, hoyde)),
+                "geometry": Point(float(kandidat.x), float(kandidat.y), float(max(0.0, hoyde))),
+            })
+            ny_punkt = Point(float(kandidat.x), float(kandidat.y))
+            brukte_punkter.append(ny_punkt)
+            # Oppdater STRtree for neste punkt
+            tree = STRtree(brukte_punkter)
+            type_teller["fortetting"] += 1
+            total_teller += 1
+            generert += 1
+        if generert < 5:
+            print(f"Advarsel: Kun {generert} punkter generert i trekant pga. avstandskrav.")
+
+    print("Ferdig fortetting nivå 5 i trekanter")
     print("Antall terrengpunkter per type:")
     for t, antall in type_teller.items():
         print(f"  {t}: {antall}")
@@ -400,16 +542,41 @@ def generer_hoydekurve(
                 segmenter_per_hoyde.setdefault(float(nivaa), []).append(segment)
             nivaa += ekvidistanse
 
+    chaikin_iterasjoner = int(konfig.get("hoydekurve_chaikin_iterasjoner", 2))
     hoydekurver: List[dict] = []
     for hoyde, segmenter in segmenter_per_hoyde.items():
         sammenslatt = linemerge(unary_union(segmenter))
         for linje in _ekstraher_linjer_fra_geometri(sammenslatt):
             klippet = linje.intersection(landgeometri)
             for gyldig_linje in _ekstraher_linjer_fra_geometri(klippet):
-                if gyldig_linje.length >= minste_lengde and gyldig_linje.is_valid:
-                    hoydekurver.append({"hoyde": float(hoyde), "geometry": gyldig_linje})
+                # Filtrer bort korte høydekurver før glatting
+                if gyldig_linje.length < minste_lengde or not gyldig_linje.is_valid:
+                    continue
+                # Glatt linjen med Chaikin-algoritmen
+                glatt_linje = _glatt_linje_chaikin(gyldig_linje, chaikin_iterasjoner)
+                hoydekurver.append({"hoyde": float(hoyde), "geometry": glatt_linje})
 
     return gpd.GeoDataFrame(hoydekurver, geometry="geometry", crs=konfig["crs"])
+# Chaikin-glatting av linje
+def _glatt_linje_chaikin(linje: LineString, iterasjoner: int) -> LineString:
+    """Glatt en LineString med Chaikin's corner cutting-algoritme."""
+    coords = list(linje.coords)
+    for _ in range(iterasjoner):
+        nye_coords = []
+        for i in range(len(coords) - 1):
+            p0 = coords[i]
+            p1 = coords[i + 1]
+            q = (
+                0.75 * p0[0] + 0.25 * p1[0],
+                0.75 * p0[1] + 0.25 * p1[1],
+            )
+            r = (
+                0.25 * p0[0] + 0.75 * p1[0],
+                0.25 * p0[1] + 0.75 * p1[1],
+            )
+            nye_coords.extend([q, r])
+        coords = [coords[0]] + nye_coords + [coords[-1]]
+    return LineString(coords)
 
 
 def _terrengdata_fra_gdf(terrengpunkt: gpd.GeoDataFrame) -> List[dict]:
@@ -1199,7 +1366,7 @@ def _narmeste_punktavstand(kandidat: Point, eksisterende_punkter: List[Point]) -
     return min(kandidat.distance(punkt) for punkt in eksisterende_punkter)
 
 
-def _lag_tilfeldig_landpunkt(landgeometri, konfig: Dict[str, object], tilfeldig: np.random.Generator) -> Point | None:
+def _lag_tilfeldig_landpunkt(landgeometri, konfig: Dict[str, object], tilfeldig: np.random.Generator) -> Optional[Point]:
     minx, miny, maxx, maxy = landgeometri.bounds
     margin = float(konfig["tettsted_boks_margin"])
 
