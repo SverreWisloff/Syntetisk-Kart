@@ -404,7 +404,7 @@ Lever en ryddig repository-struktur med:
 
 # 💡 Ideer til neste versjon
 Print ut litt mer status i terminalvinduet på første del, feks kystkontur
-Print ut antall TIN-trekanter når det er klart
+Print ut underveis i lagring til gpkg
 
 
 
