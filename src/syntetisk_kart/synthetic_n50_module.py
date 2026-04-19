@@ -975,6 +975,7 @@ def _del_segment_rekursivt(
     avviksfaktor: float,
     maks_innoveravvik: float,
     maks_utoveravvik: float,
+    er_forste_deling: bool = True,
 ) -> List[Punkt]:
     segmentlengde = math.dist(startpunkt, sluttpunkt)
     if segmentlengde <= minste_segmentlengde:
@@ -982,7 +983,14 @@ def _del_segment_rekursivt(
 
     midtpunkt = ((startpunkt[0] + sluttpunkt[0]) / 2.0, (startpunkt[1] + sluttpunkt[1]) / 2.0)
     maks_toveis_avvik = min(segmentlengde / avviksfaktor, maks_innoveravvik, maks_utoveravvik)
-    avvik = float(tilfeldig.uniform(-maks_toveis_avvik, maks_toveis_avvik))
+
+    if er_forste_deling:
+        grunnavvik = min(segmentlengde * 1.9, maks_toveis_avvik)
+        fortegn = float(tilfeldig.choice([-1.0, 1.0]))
+        avvik = grunnavvik * fortegn
+    else:
+        avvik = float(tilfeldig.uniform(-maks_toveis_avvik, maks_toveis_avvik))
+
     forskyvet_midtpunkt = (midtpunkt[0] + normal[0] * avvik, midtpunkt[1] + normal[1] * avvik)
 
     venstre = _del_segment_rekursivt(
@@ -994,6 +1002,7 @@ def _del_segment_rekursivt(
         avviksfaktor=avviksfaktor,
         maks_innoveravvik=maks_innoveravvik,
         maks_utoveravvik=maks_utoveravvik,
+        er_forste_deling=False,
     )
     hoyre = _del_segment_rekursivt(
         startpunkt=forskyvet_midtpunkt,
@@ -1004,6 +1013,7 @@ def _del_segment_rekursivt(
         avviksfaktor=avviksfaktor,
         maks_innoveravvik=maks_innoveravvik,
         maks_utoveravvik=maks_utoveravvik,
+        er_forste_deling=False,
     )
     return venstre[:-1] + hoyre
 

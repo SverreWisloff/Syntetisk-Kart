@@ -89,7 +89,7 @@ Kystkontur skal alltid følge 4 kanter, slik at det lages en øy hver gang.
 Det skal være én sammenhengende kystlinje som går rundt hele øya.
 Ved generering av hjørnepunkter skal disse ikke være plassert helt ut i hjørnet, men tilfeldig inntil 30%inn fra hjørnekanten.
 For de kantene som skal ha kystkontur, lag kystkontur som en rett linje 300m fra ytterkanten av bbox.
-Linje deles i to, og midtpunktet forskyves fra linjen med en tilfeldig verdi < Linjeavtande/3. Prosessen gjentas rekursivt for de nye linjesegmentene for å skape ujevnheter, inntil linjeavstand er <1m. Sjekk for at linjen ikke krysser bbox eller kystkontur.
+Linje deles i to, og i første linjedeling forskyves midtpunktet med en svært stor andel av linjelengden til tilfeldig høyre eller venstre, slik at øya ikke blir for firkantet. Prosessen gjentas deretter rekursivt for de nye linjesegmentene for å skape ujevnheter, inntil linjeavstand er <1m. Sjekk for at linjen ikke krysser bbox eller kystkontur.
 Lag et lukket polygon av havet med kystkontur
 
 ### N50-StedsnavnTekst (3D-Punkt)
@@ -397,10 +397,7 @@ Lever en ryddig repository-struktur med:
 - `.gitignore` som ignorerer miljø- og låsefiler
 
 # 💡 Ideer til neste versjon
-Kysten er preget av en firkant.
-Forslag til løsning: Når linjen deles i to, og midtpunktet forskyves fra linjen med en tilfeldig verdi, bør denne verdien være større. Er du enig?
-
-Ser at det er litt få tettsteder ved kysten. Nå som dette er en øy hver gang. Foreslå e
+Ser at det er litt få tettsteder ved kysten. Nå som dette er en øy hver gang, kan du foreslå en bedre algoritme som gir moderat flere tettsteder ved kysten. 
 
 Det ser ut som at det er riksveger som tar tettstedene i en sekvens. Foreslå en algoritme som skaper noen flere riksveger mellom tettstedene
 

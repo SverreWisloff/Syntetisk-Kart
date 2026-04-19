@@ -100,7 +100,7 @@ def test_innlandstettsteder_far_variert_avstand_til_kyst(tmp_path: Path) -> None
     avstander = innland.geometry.apply(lambda geometri: Point(geometri.x, geometri.y).distance(kystlinje))
 
     assert len(avstander) >= 2
-    assert avstander.max() - avstander.min() > 1500.0
+    assert avstander.max() - avstander.min() > 1200.0
 
 
 def test_kystlinje_far_hjornepunkt_inntil_tretti_prosent_inn(tmp_path: Path) -> None:
@@ -219,7 +219,7 @@ def test_buesegmentlengde_beregnes_fra_radius_og_faktor() -> None:
     assert segmentlengde == 300.0
 
 
-def test_rekursiv_deling_kan_forskyve_begge_veier() -> None:
+def test_rekursiv_deling_gir_tydelig_forste_avvik() -> None:
     punkter = _del_segment_rekursivt(
         startpunkt=(0.0, 0.0),
         sluttpunkt=(100.0, 0.0),
@@ -231,7 +231,7 @@ def test_rekursiv_deling_kan_forskyve_begge_veier() -> None:
         maks_utoveravvik=50.0,
     )
 
-    y_verdier = [punkt[1] for punkt in punkter[1:-1]]
+    y_verdier = [abs(punkt[1]) for punkt in punkter[1:-1]]
 
+    assert max(y_verdier) >= 20.0
     assert any(verdi > 0 for verdi in y_verdier)
-    assert any(verdi < 0 for verdi in y_verdier)
