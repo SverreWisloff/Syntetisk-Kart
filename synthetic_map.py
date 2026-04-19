@@ -24,7 +24,7 @@ STANDARD_KONFIGURASJON: Dict[str, Any] = {
     "stedsnavn_lag_navn": "n50_stedsnavntekst",
     "veglag_navn": "n50_vegsenterlinje",
     "tilgjengelige_sider": ["vest", "ost", "sor", "nord"],
-    "min_antall_sider": 1,
+    "min_antall_sider": 4,
     "maks_antall_sider": 4,
     "kyst_avstand_fra_bbox": 300.0,
     "hjornemargin": 300.0,

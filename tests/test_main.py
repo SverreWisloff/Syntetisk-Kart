@@ -27,6 +27,8 @@ def test_generer_n50_kystkontur_gir_gyldige_linjer(tmp_path: Path) -> None:
     assert set(kyst.geom_type) == {"LineString"}
     assert kyst.is_valid.all()
     assert kyst.length.min() > 0
+    assert kyst.iloc[0]["sider"] == "vest,nord,ost,sor"
+    assert kyst.geometry.iloc[0].is_ring
 
 
 def test_generer_havflate_blir_lukket_polygon(tmp_path: Path) -> None:

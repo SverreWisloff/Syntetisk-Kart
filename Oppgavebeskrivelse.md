@@ -85,8 +85,8 @@ Bygg løsningen modulært med én orkestrator og temamoduler:
 ## Algoritmer for generering av objekttyper
 
 ### N50-Kystkontur (2D-kurve) 
-Kystkontur tilfeldig 1, 2, 3 eller fire kanter.
-Uansett antall sider, så skal det være en kystlinje, ikke flere. Så dersom det er flere kanter det skal lages kystkontur, må dise være inntill hverandre.
+Kystkontur skal alltid følge 4 kanter, slik at det lages en øy hver gang.
+Det skal være én sammenhengende kystlinje som går rundt hele øya.
 Ved generering av hjørnepunkter skal disse ikke være plassert helt ut i hjørnet, men tilfeldig inntil 30%inn fra hjørnekanten.
 For de kantene som skal ha kystkontur, lag kystkontur som en rett linje 300m fra ytterkanten av bbox.
 Linje deles i to, og midtpunktet forskyves fra linjen med en tilfeldig verdi < Linjeavtande/3. Prosessen gjentas rekursivt for de nye linjesegmentene for å skape ujevnheter, inntil linjeavstand er <1m. Sjekk for at linjen ikke krysser bbox eller kystkontur.
@@ -120,21 +120,46 @@ Hver iterasjon
  - Når vegen er nær nok endepunktet(<3*segmentlengden), legges siste del inn som bue mot avslutning mot målet. Buen beregnes slik at den er tangent-kontinuerlig, og avsluttes i endepunkt.
  Til slutt valideres kandidatlinjen. Hvis linjen krysser seg selv, eller er nærmere en annen veg enn 15m, forkastes den og algoritmen prøver på nytt opptil et gitt antall forsøk.
 
-----------------------------------------------------------------------------
-**HIT HAR JEG KOMMET**
-----------------------------------------------------------------------------
-
 ### N50-Terrengpunkt (3D-Punkt)
 Tettsteder ligger i daler. Nå skal det genereres punkter for fjell.
-Plukk ut terrengpunkter som senere skal brukes til å generere TIN:
-- Langs Kystlinje plukk ut punkt hver slik at avstanden mellom punktene er oppunder 500m.
-- Langs veg plukk ut punkt ikke nærmere hverandre enn 100m.
-- Alle Tettstedene 
+Dette skjer gjennom flere itterasjoner:
+#### Nivå1:
+- Plukk ut terrengpunkter som senere skal brukes til å generere TIN:
+- Bruk parametre for avstand mellom Tettsteder, som er et intervall. Bruk parameter for nederste grense av intervallet som nivåets-punkt-tetthet. 
+- Langs Kystlinje plukk ut punkt slik at avstanden mellom punktene er oppunder nivåets-punkt-tetthet.
+- Langs veg plukk ut punkt ikke nærmere hverandre enn nivåets-punkt-tetthet.
+- Alle Tettstedene er med i utvalget av terrengpunkter
+- Lagre alle terrengpunktene i Nivå1, med høyde.
+Bygg TIN
+#### Nivå2:
+- I hver TIN-trekant generer ett terrengpunkt i miten av TIN-trekanten. 
+- Terrengpunkt-høyden = (TIN-interpolerte høyden for midtpunktet) + Tilfeldig tall i intervallet [100, 400]
+Bygg TIN
+#### Nivå3:
+For hver trekant genereres nye punkter inne i trekanten.
+AntallPunktPrTrekant=5
+Høyden på nye punkt er TIN-interpolert høyde for x,y + tilfeldig verdi med MaxAvvikFraTIN=3.0
+Bygg TIN
+#### Nivå4:
+AntallPunktPrTrekant=3
+MaxAvvikFraTIN=1.0
+Bygg TIN
+#### Nivå5:
+AntallPunktPrTrekant=3
+MaxAvvikFraTIN=0.4
+Bygg TIN
+#### Nivå6:
+AntallPunktPrTrekant=3
+MaxAvvikFraTIN=0.1
+Bygg TIN
 
 ### N50-Hoydekurve (2D-kurve)
 Generer TIN.
 Generer Hoydekurver med ekvidistande=20m basert på TIN.
 
+----------------------------------------------------------------------------
+**HIT HAR JEG KOMMET**
+----------------------------------------------------------------------------
 
 ### 1. Terreng
 Målet er å generere objekttypen Høydekurve
