@@ -6,17 +6,22 @@ Se også [Oppgavebeskrivelse.md](Oppgavebeskrivelse.md) for full oppgavebeskrive
 
 ## Siste skjermdump
 
-![Siste skjermdump av kartresultat](skjermdumper/Skjermbilde%202026-04-17%20kl.%2023.19.18.png)
+![Siste skjermdump av kartresultat](skjermdumper/Skjermbilde%202026-04-19%20kl.%2020.45.33.png)
+
+Eksempel på syntetisk kart med kystkontur, tettsteder, vegsenterlinjer, terrengpunkter og glattede høydekurver.
 
 ## Status
 
-Foreløpig er disse N50-lagene implementert og verifisert:
+Pipeline genererer og verifiserer følgende N50-lag:
 
 - én sammenhengende N50-kystkontur
 - lukket havflate basert på kystkonturen
 - N50-StedsnavnTekst som 3D-punkt for tettsteder
 - N50-VegSenterlinje som 3D-linjer mellom tettsteder
+- N50-Terrengpunkt (inkl. fortetting nivå 4 og 5, fjellkjerner, flatepunkter)
+- N50-høydekurver (med filtrering og Chaikin-glatting)
 - tilfeldig generering med ny seed for hver kjøring
+- alle parametre sentralisert i `synthetic_map.py`
 - tester for geometri, variasjon og robusthet
 
 ## Teknologi
@@ -55,25 +60,27 @@ PYTHONPATH=src .venv/bin/python synthetic_map.py --seed 12345
 
 ## Output
 
-Ved kjøring opprettes foreløpig:
+Ved kjøring opprettes:
 
-- `N50.gpkg`
-  - laget `n50_kystkontur`
-  - laget `n50_havflate`
-  - laget `n50_stedsnavntekst`
-  - laget `n50_vegsenterlinje`
+- `N50.gpkg` med følgende lag:
+  - `n50_kystkontur`
+  - `n50_havflate`
+  - `n50_stedsnavntekst`
+  - `n50_vegsenterlinje`
+  - `n50_terrengpunkt`
+  - `n50_hoydekurve`
 
 ## Konfigurasjon
 
-Sentrale parametre ligger i `synthetic_map.py`, blant annet:
+Alle sentrale parametre og konfigurasjon ligger i `synthetic_map.py` og sendes eksplisitt til alle moduler. Eksempler:
 
-- bbox og koordinatsystem
-- antall mulige kystsider
-- avstand fra bbox til kystlinje
-- hvor langt hjørnepunkter kan trekkes inn fra hjørnene
-- hvor mye kystlinjen kan variere rekursivt
-- antall tettsteder og spredning mellom dem
-- vegparametre for riksveg, blant annet segmentlengde, vegbredde og bueradius `150–250 m`
+- bbox og koordinatsystem (EPSG:25833)
+- seed for tilfeldig generering
+- kystparametre: antall sider, avstand fra bbox, variasjon
+- tettsted: antall, kystandel, min/maks avstand, høyde, navn
+- veg: segmentlengde, bueradius, sannsynlighet for rette strekninger
+- terreng: punktavstand, fjellkjerner, flatepunkter, fortetting nivå 4 og 5
+- høydekurver: ekvidistanse, min. lengde, antall glatte-iterasjoner (Chaikin)
 
 ## Testing
 
