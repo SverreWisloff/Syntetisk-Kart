@@ -232,6 +232,9 @@ def generer_terrengpunkt(
     punktavstand = float(konfig["terreng_niva1_punktavstand"])
     minste_avstand = float(konfig["terreng_min_punktavstand"])
 
+    # Nivå 5: Bruk fast avstand 200m for punkter langs veg og kyst
+    punktavstand_n5 = 200.0
+
     tettsteder = [
         {
             "navn": rad["navn"],
@@ -262,7 +265,9 @@ def generer_terrengpunkt(
     print("Ferdig tettsted, starter kyst")
 
     # Kystpunkter: bruk alltid høyde = 0 (havnivå)
-    for kystpunkt in _lag_linjeprover(kystlinje, punktavstand):
+
+    # Nivå 5: punkter langs kyst hver 200m, høyde=0
+    for kystpunkt in _lag_linjeprover(kystlinje, punktavstand_n5):
         _legg_til_terrengpunkt(
             terrengpunktdata,
             brukte_punkter,
@@ -276,9 +281,10 @@ def generer_terrengpunkt(
     print("Ferdig kyst, starter veg")
 
     # Vegpunkter: bruk Z-verdi fra vegpunktet (alle punkter på vegsenterlinje skal ha Z)
-    veg_punktavstand = punktavstand / 2.0
+    # Nivå 5: punkter langs veg hver 200m, bruk lineær høyde mellom start og slutt
+    veg_punktavstand_n5 = 200.0
     for veggeometri in vegsenterlinje.geometry:
-        for vegpunkt in _lag_linjeprover(veggeometri, veg_punktavstand):
+        for vegpunkt in _lag_linjeprover(veggeometri, veg_punktavstand_n5):
             # Sikre at vegpunkt har Z-verdi, ellers bruk terrengmodell
             if hasattr(vegpunkt, "z"):
                 hoyde = float(vegpunkt.z)
