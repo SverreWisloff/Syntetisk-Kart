@@ -1,3 +1,75 @@
+import geopandas as gpd
+from typing import Dict
+#
+# N50-Innsjøkant: Finn groper/lukkede lavpunkter fra TIN og lag innsjøpolygoner
+def generer_innsjokant(
+    terrengpunkt: gpd.GeoDataFrame,
+    havflate: gpd.GeoDataFrame,
+    hoydekurver: gpd.GeoDataFrame,
+    konfig: Dict[str, object],
+) -> gpd.GeoDataFrame:
+    """
+    Genererer N50-Innsjøkant (polygon) basert på groper/lukkede lavpunkter i terrenget.
+    Bruker TIN og høydekurver for å finne innsjøkandidater.
+    Kun innsjøer >300 m² og bredere enn 15 meter tas med.
+    """
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+    import numpy as np
+
+    # Finn lukkede høydekurver (Polygoner) som ikke overlapper hav
+    # En kurve er en grop hvis det ikke finnes en lavere kurve som omslutter den
+    innsjo_polygons = []
+    # Forhåndsprosesser: lag liste av (polygon, høyde, rad)
+    kurver = []
+    for _, rad in hoydekurver.iterrows():
+        geom = rad.geometry
+        if geom.is_ring or isinstance(geom, Polygon):
+            poly = Polygon(geom) if not isinstance(geom, Polygon) else geom
+            hoyde = rad.get("hoyde", None)
+            if hoyde is not None:
+                kurver.append((poly, hoyde, rad))
+
+    # Sorter etter høyde stigende (lavest først)
+    kurver.sort(key=lambda x: x[1])
+
+    for i, (poly, hoyde, rad) in enumerate(kurver):
+        # Sjekk at polygonet ikke overlapper hav
+        if poly.intersects(havflate.geometry.iloc[0]):
+            continue
+        # Areal- og breddekrav
+        if poly.area < 300:
+            continue
+        minx, miny, maxx, maxy = poly.bounds
+        bredde = max(maxx - minx, maxy - miny)
+        if bredde < 15:
+            continue
+        # Sjekk om det finnes en lavere kurve som omslutter denne (dvs. ikke grop)
+        er_grop = True
+        for j, (poly2, hoyde2, _) in enumerate(kurver):
+            if j == i:
+                continue
+            if hoyde2 < hoyde and poly2.contains(poly):
+                er_grop = False
+                break
+        # NYTT: Sjekk at det ikke finnes høyere kurver inni polygonet (dvs. ikke fjell)
+        if er_grop:
+            for j, (poly2, hoyde2, _) in enumerate(kurver):
+                if j == i:
+                    continue
+                if hoyde2 > hoyde and poly.contains(poly2):
+                    # Det finnes et høyere område inni, ikke en grop
+                    er_grop = False
+                    break
+        if er_grop:
+            innsjo_polygons.append({
+                "geometry": poly,
+                "objekttype": "N50-Innsjøkant",
+                "hoyde": hoyde
+            })
+    if not innsjo_polygons:
+        return gpd.GeoDataFrame(columns=["geometry"], geometry="geometry", crs=konfig["crs"])
+    return gpd.GeoDataFrame(innsjo_polygons, geometry="geometry", crs=konfig["crs"])
 # Legg til etter alle imports og type hints
 # Legg til etter alle imports og type hints
 import geopandas as gpd
@@ -579,6 +651,13 @@ def generer_hoydekurve(
 
     # Slett høydekurver som er kortere enn 250 meter
     hoydekurver = [obj for obj in hoydekurver if obj["geometry"].length >= 250.0]
+
+    # Slett høydekurver som ligger helt inni innsjøkant
+    if "innsjo_gdf" in konfig:
+        innsjo_gdf = konfig["innsjo_gdf"]
+        innsjo_union = unary_union(innsjo_gdf.geometry)
+        hoydekurver = [obj for obj in hoydekurver if not obj["geometry"].within(innsjo_union)]
+
     return gpd.GeoDataFrame(hoydekurver, geometry="geometry", crs=konfig["crs"])
 # Chaikin-glatting av linje
 def _glatt_linje_chaikin(linje: LineString, iterasjoner: int) -> LineString:

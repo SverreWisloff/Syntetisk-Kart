@@ -1,6 +1,6 @@
 
 from __future__ import annotations
-from syntetisk_kart.synthetic_n50_module import generer_tettbebyggelse
+from syntetisk_kart.synthetic_n50_module import generer_tettbebyggelse, generer_innsjokant
 """Orkestrator for generering av syntetisk kart."""
 
 import argparse
@@ -156,8 +156,17 @@ def generer_n50_kystkontur(
     vegsenterlinje = generer_vegsenterlinje(stedsnavntekst, kystkontur, havflate, konfig)
     terrengpunkt, trig_punkt = generer_terrengpunkt(kystkontur, havflate, stedsnavntekst, vegsenterlinje, konfig)
     tin = generer_tin(terrengpunkt, havflate, konfig)
-    hoydekurve = generer_hoydekurve(terrengpunkt, havflate, konfig)
+
     tettbebyggelse = generer_tettbebyggelse(stedsnavntekst, konfig)
+    # 1. Generer høydekurver uten innsjøkant-filter
+    hoydekurve = generer_hoydekurve(terrengpunkt, havflate, konfig)
+    # 2. Generer innsjøkant basert på høydekurver
+    innsjo_kant = generer_innsjokant(terrengpunkt, havflate, hoydekurve, konfig)
+    # 3. Filtrer høydekurver med innsjøkant
+    from shapely.ops import unary_union
+    innsjo_union = unary_union(innsjo_kant.geometry) if not innsjo_kant.empty else None
+    if innsjo_union:
+        hoydekurve = hoydekurve[~hoydekurve.geometry.within(innsjo_union)]
 
     output_sti = Path(output_katalog)
     output_sti.mkdir(parents=True, exist_ok=True)
@@ -174,6 +183,7 @@ def generer_n50_kystkontur(
     hoydekurve.to_file(filsti, layer=str(konfig["hoydekurve_lag_navn"]), driver="GPKG", mode="a")
     trig_punkt.to_file(filsti, layer=str(konfig["trig_punkt_lag_navn"]), driver="GPKG", mode="a")
     tettbebyggelse.to_file(filsti, layer="n50_tettbebyggelse", driver="GPKG", mode="a")
+    innsjo_kant.to_file(filsti, layer="n50_innsjokant", driver="GPKG", mode="a")
     return {
         "kystkontur": kystkontur,
         "havflate": havflate,
@@ -184,6 +194,7 @@ def generer_n50_kystkontur(
         "hoydekurve": hoydekurve,
         "trigonometriskpunkt": trig_punkt,
         "tettbebyggelse": tettbebyggelse,
+        "innsjokant": innsjo_kant,
         "filsti": filsti,
         "seed": konfig["seed"],
     }

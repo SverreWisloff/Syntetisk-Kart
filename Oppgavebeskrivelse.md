@@ -201,8 +201,8 @@ Lagre som N50-Tettbebyggelse.
 ### N50-Innsjøkant
 Områder som er en grop, eller "lukket" lavpunkt, er kandidat for innsjø.
 Objekttypen Innsjøkant er et lukket polygon.
-Høydekurver som er lukket, og som har 1, 2 eller 3 lukkede høydekurver inni seg med lavere høyde er kandidat for innsjø. La da Innsjøkant følge denne høydekurven.
-Store Innsjøkant-polygoner, reduseres ved å bruke en av de høydekurvene som ligger inni som Innsjøkant.
+Bruk TIN til å finne groper. Når gropfunnet lag høydekurve med en passende høyde som Innsjøkant.
+Høydekurver inni Innsjøkant kan slettes.
 Innsjøer som er større enn 300 m² og bredere enn 15 meter, tas med.
 
 ### N50-Myr
