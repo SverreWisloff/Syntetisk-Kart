@@ -159,7 +159,7 @@ Bygg TIN
 ### N50-Hoydekurve (2D-kurve)
 Lagre TIN i N50.
 Generer Hoydekurver med ekvidistande=20m basert på TIN.
-Slett høydekurver kortere enn 200m
+Slett høydekurver som har kortere lengde enn 250 m
 Glatt høydekurvene.
 
 ### N50-TrigonometriskPunkt
@@ -170,7 +170,7 @@ Terrengpunkt av typen "fjellkjede" kopieres med høyden til et eget lag: N50-Tri
 --------------------------
 Ikke lag fortettingspunkter som er nermere et annet  fortettingspunkt enn 20m
 
-Hvordan skal jeg få noen forsenklinger i terrenget?
+Lag noen forsenklinger på 30m i terrenget.?
 
 I Nivå 4 settes høyden på nye punkt er TIN-interpolert høyde for x,y + tilfeldig verdi for hvert punkt: [-10 , 30.0]. Gjør om dette til[-30 , 30.0], som kan medføre noen lavere områder
 
@@ -179,11 +179,24 @@ I Nivå 4 settes høyden på nye punkt er TIN-interpolert høyde for x,y + tilfe
 N50 har heldekkende Arealdekke som beskriver alt areal. 
 Arealdekke består av disse objekttypene
 - Kystkontur
+- Tettbebyggelse
 - Innsjøkant
 - Myr
-- Tettbebyggelse
 - DyrketMark
 - Skog
+
+### N50-Tettbebyggelse
+Lag et polygon rundt tettsted-punktene. I steden for en sirkel med radius=500m, la den avvike fra sirkelen som en amøbefigur. 
+
+Tettbebyggelse-agoritme:
+Fra senter generer punkt i 8 retninger, alle med avstand fra senter lik bebyggelses-radius +- tilfeldig avvik på 30%.
+Lag et polygon baset på disse 8 punktene. 
+Fortett dette polygonet slik at det blir et glatt polygon.
+Punktavstand i polygonen trenger ikke fortettes tettere enn punktavstand 100m.
+
+Når Tettbebyggelse genereres kan bebyggelses-radius settes lik et tilfeldig tall i intervallet [400, 1000], slik at de ulike Tettbebyggelse blir litt ulikt store
+
+Lagre som N50-Tettbebyggelse.
 
 ### N50-Innsjøkant
 Områder som er en grop, eller "lukket" lavpunkt, er kandidat for innsjø.
@@ -193,25 +206,22 @@ Store Innsjøkant-polygoner, reduseres ved å bruke en av de høydekurvene som l
 Innsjøer som er større enn 300 m² og bredere enn 15 meter, tas med.
 
 ### N50-Myr
-Myr som er større enn 2000m2 og bredere enn 30 m, tas med
 Noen av de aller flateste områdene defineres som myr
-Noen ganger kommer to myr-flater rett ved siden av hverandre. Slå disse sammen til en flate
-
-### N50-Tettbebyggelse
-Lag et polygon rundt tettsted-punktene. I steden for en sirkel med radius=500m, la den avvike fra sirkelen som en amøbefigur. Lagre som N50-Tettbebyggelse.
+Noen ganger kommer to myr-flater rett ved siden av hverandre. Slå disse sammen til en flate.
+Myr som er større enn 2000m2 og bredere enn 30 m, tas med
 
 ### N50-DyrketMark
 Av det gjenværende arealet, finn noen relativt flate områder > 2000m2. Disse lagres som N50-DyrketMark
+
+Det skel ikke være overlapp mellom Arealbruk. Dersom det er overlapp mellom Myr, Innsjø, Bebyggelse, skal Innsjø gå foran Bebyggelse, som går foran Myr
+
 ### N50-Skog
 Resten av arealene er lagres som Barskog
 
-### N50-TrigonometriskPunkt
-Terrengpunkt av typen "fjellkjede" kopieres med høyden til et eget lag: N50-TrigonometriskPunkt (3D-punkt)
-
-### N50-VegSenterlinjeR (3D-linje)
+## N50-VegSenterlinjeR (3D-linje)
 Beskrivelse for N50-VegSenterlinje er for Riksveger. Korriger både her og i koden slik at det heter N50-VegSenterlinjeR
 
-### N50-VegSenterlinjeK (3D-linje)
+## N50-VegSenterlinjeK (3D-linje)
 Rund tettstedene skal Kommunale veger genereres.
 
 

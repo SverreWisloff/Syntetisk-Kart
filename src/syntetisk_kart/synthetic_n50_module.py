@@ -1,3 +1,6 @@
+# Legg til etter alle imports og type hints
+# Legg til etter alle imports og type hints
+import geopandas as gpd
 
 """Generering av syntetiske N50-objekter."""
 
@@ -329,7 +332,7 @@ def generer_terrengpunkt(
 
 
     # Nivå 3: Flatepunkter rundt tettstedene
-    radius = 500.0  # meters, iht. spesifikasjon
+    radius = 1300.0  # meters, doblet fra 650.0
     for tettsted in tettsteder:
         for _ in range(6):
             vinkel = float(tilfeldig.uniform(0.0, math.tau))
@@ -372,7 +375,7 @@ def generer_terrengpunkt(
             if not landgeometri.covers(midtpunkt):
                 continue
             interpolert_hoyde = _interpoler_hoyde_i_trekant((mx, my), koordinater, hoyder)
-            hoyde = interpolert_hoyde + tilfeldig.uniform(-10.0, 30.0)
+            hoyde = interpolert_hoyde + tilfeldig.uniform(-20.0, 30.0)
             fortettingspunkter.append({
                 "kilde": "fortetting",
                 "x": mx,
@@ -499,7 +502,10 @@ def generer_terrengpunkt(
 
     # Returner alle genererte terrengpunkter og trigonometriske punkt
     terreng_gdf = gpd.GeoDataFrame(terrengpunktdata, geometry="geometry", crs=konfig["crs"])
-    trig_gdf = gpd.GeoDataFrame(trig_punkt_liste, geometry="geometry", crs=konfig["crs"])
+    if trig_punkt_liste:
+        trig_gdf = gpd.GeoDataFrame(trig_punkt_liste, geometry="geometry", crs=konfig["crs"])
+    else:
+        trig_gdf = gpd.GeoDataFrame(columns=["hoyde", "geometry"], geometry="geometry", crs=konfig["crs"])
     return terreng_gdf, trig_gdf
 
 
@@ -571,6 +577,8 @@ def generer_hoydekurve(
                 glatt_linje = _glatt_linje_chaikin(gyldig_linje, chaikin_iterasjoner)
                 hoydekurver.append({"hoyde": float(hoyde), "geometry": glatt_linje})
 
+    # Slett høydekurver som er kortere enn 250 meter
+    hoydekurver = [obj for obj in hoydekurver if obj["geometry"].length >= 250.0]
     return gpd.GeoDataFrame(hoydekurver, geometry="geometry", crs=konfig["crs"])
 # Chaikin-glatting av linje
 def _glatt_linje_chaikin(linje: LineString, iterasjoner: int) -> LineString:
@@ -659,6 +667,7 @@ def _beregn_terrenghoyde(
     fjellkjerner: List[dict],
     konfig: Dict[str, object],
 ) -> float:
+
     hoyde = max(
         float(konfig["tettsted_kyst_hoyde"]),
         punkt.distance(kystlinje) / float(konfig["tettsted_hoyde_divisor"]),
@@ -668,6 +677,10 @@ def _beregn_terrenghoyde(
         avstand = punkt.distance(fjellkjerne["punkt"])
         spredning = max(1.0, float(fjellkjerne["spredning"]))
         hoyde += float(fjellkjerne["hoyde"]) * math.exp(-(avstand * avstand) / (2.0 * spredning * spredning))
+
+    # Begrens maksimal fjellhøyde
+    fjell_hoyde_maks = float(konfig.get("terreng_fjell_hoyde_maks", 320.0))
+    hoyde = min(hoyde, fjell_hoyde_maks)
 
     flat_radius = float(konfig["terreng_flate_radius"])
     for tettsted in tettsteder:
@@ -1652,4 +1665,55 @@ def _er_gyldig_kystlinje(kystlinje: LineString, bbox_polygon) -> bool:
     if not (kystlinje.is_simple or kystlinje.is_ring):
         return False
     return bbox_polygon.covers(kystlinje)
+
+# --- Amøbeformet tettbebyggelse ---
+
+def generer_tettbebyggelse(stedsnavntekst: gpd.GeoDataFrame, konfig: Dict[str, object]) -> gpd.GeoDataFrame:
+    """
+    Genererer polygon for tettbebyggelse rundt hvert tettstedspunkt.
+    For hvert tettsted genereres 8 punkter i 8 retninger med radius i [400,800] meter ±30%.
+    Polygonet fortettes slik at punktavstand er ca 100 meter og glattes med buffer.
+    """
+    import numpy as np
+    from shapely.geometry import Polygon
+
+    resultater = []
+    antall_retn = 8
+    for _, rad in stedsnavntekst.iterrows():
+        x0, y0 = rad.geometry.x, rad.geometry.y
+        base_radius = np.random.uniform(400, 800)
+        punkter = []
+        for i in range(antall_retn):
+            vinkel = 2 * np.pi * i / antall_retn
+            avvik = np.random.uniform(0.7, 1.3)
+            r = base_radius * avvik
+            x = x0 + r * np.cos(vinkel)
+            y = y0 + r * np.sin(vinkel)
+            punkter.append((x, y))
+        poly = Polygon(punkter)
+        # Fortett polygonen: interpoler punkter slik at punktavstand ~100m
+        coords = list(poly.exterior.coords)
+        fortettet_coords = []
+        for i in range(len(coords)-1):
+            x1, y1 = coords[i]
+            x2, y2 = coords[i+1]
+            fortettet_coords.append((x1, y1))
+            dist = np.hypot(x2-x1, y2-y1)
+            n_pts = int(dist // 100)
+            for j in range(1, n_pts+1):
+                t = j/(n_pts+1)
+                nx = x1 + t*(x2-x1)
+                ny = y1 + t*(y2-y1)
+                fortettet_coords.append((nx, ny))
+        poly_fortettet = Polygon(fortettet_coords)
+        # Glatt polygonen med buffer(50)->buffer(-50)
+        poly_glatt = poly_fortettet.buffer(50).buffer(-50)
+        resultater.append({
+            "geometry": poly_glatt,
+            "objekttype": "N50-Tettbebyggelse",
+            "navn": rad.get("navn", "")
+        })
+    if not resultater:
+        return gpd.GeoDataFrame(columns=["geometry"], geometry="geometry", crs=konfig["crs"])
+    return gpd.GeoDataFrame(resultater, geometry="geometry", crs=konfig["crs"])
 

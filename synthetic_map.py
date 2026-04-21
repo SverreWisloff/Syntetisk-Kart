@@ -1,6 +1,7 @@
-"""Orkestrator for generering av syntetisk kart."""
 
 from __future__ import annotations
+from syntetisk_kart.synthetic_n50_module import generer_tettbebyggelse
+"""Orkestrator for generering av syntetisk kart."""
 
 import argparse
 import os
@@ -51,7 +52,7 @@ STANDARD_KONFIGURASJON: Dict[str, Any] = {
     "tettsted_areal_per_ekstra": 12000000.0,
     "tettsted_kystandel": 0.4,
     "tettsted_kystavstand": 200.0,
-    "tettsted_avstand_min": 1000.0,
+    "tettsted_avstand_min": 2500.0,
     "tettsted_avstand_maks": 6000.0,
     "tettsted_kyst_hoyde": 15.0,
     "tettsted_hoyde_divisor": 20.0,
@@ -99,9 +100,9 @@ STANDARD_KONFIGURASJON: Dict[str, Any] = {
     "terreng_seed_offset": 3000,
     "terreng_niva1_punktavstand": 2000.0,
     "terreng_min_punktavstand": 35.0,
-    "terreng_fjellkjerner_antall": 4,
-    "terreng_fjell_min_kystavstand": 1200.0,
-    "terreng_fjell_min_tettstedavstand": 1500.0,
+    "terreng_fjellkjerner_antall": 6,
+    "terreng_fjell_min_kystavstand": 800.0,
+    "terreng_fjell_min_tettstedavstand": 800.0,
     "terreng_fjell_hoyde_min": 100.0,
     "terreng_fjell_hoyde_maks": 320.0,
     "terreng_fjell_spredning_min": 1200.0,
@@ -156,6 +157,7 @@ def generer_n50_kystkontur(
     terrengpunkt, trig_punkt = generer_terrengpunkt(kystkontur, havflate, stedsnavntekst, vegsenterlinje, konfig)
     tin = generer_tin(terrengpunkt, havflate, konfig)
     hoydekurve = generer_hoydekurve(terrengpunkt, havflate, konfig)
+    tettbebyggelse = generer_tettbebyggelse(stedsnavntekst, konfig)
 
     output_sti = Path(output_katalog)
     output_sti.mkdir(parents=True, exist_ok=True)
@@ -171,6 +173,7 @@ def generer_n50_kystkontur(
     tin.to_file(filsti, layer=str(konfig["tinlag_navn"]), driver="GPKG", mode="a")
     hoydekurve.to_file(filsti, layer=str(konfig["hoydekurve_lag_navn"]), driver="GPKG", mode="a")
     trig_punkt.to_file(filsti, layer=str(konfig["trig_punkt_lag_navn"]), driver="GPKG", mode="a")
+    tettbebyggelse.to_file(filsti, layer="n50_tettbebyggelse", driver="GPKG", mode="a")
     return {
         "kystkontur": kystkontur,
         "havflate": havflate,
@@ -180,6 +183,7 @@ def generer_n50_kystkontur(
         "tin": tin,
         "hoydekurve": hoydekurve,
         "trigonometriskpunkt": trig_punkt,
+        "tettbebyggelse": tettbebyggelse,
         "filsti": filsti,
         "seed": konfig["seed"],
     }
