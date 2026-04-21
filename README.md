@@ -4,27 +4,30 @@ Syntetisk-kart er et Python-prosjekt som genererer syntetiske GIS-data for et av
 
 Se også [Oppgavebeskrivelse.md](Oppgavebeskrivelse.md) for full oppgavebeskrivelse og videre plan.
 
+
 ## Siste skjermdump
 
-![Siste skjermdump av kartresultat](skjermdumper/Skjermbilde%202026-04-19%20kl.%2021.24.45.png)
+![Siste skjermdump av kartresultat](skjermdumper/Skjermbilde%202026-04-21%20kl.%2021.41.47.png)
 
-Eksempel på syntetisk kart med kystkontur, tettsteder, vegsenterlinjer, terrengpunkter og glattede høydekurver.
+Eksempel på syntetisk kart med kystkontur, tettsteder, vegsenterlinjer, terrengpunkter, glattede høydekurver og ny algoritme for tettbebyggelse.
 
 **Merk:** Fra og med 19.04.2026 er all seed-fiksering fjernet. Hver kjøring gir nå et unikt, ikke-deterministisk resultat.
+
 
 ## Status
 
 Pipeline genererer og verifiserer følgende N50-lag:
 
-- én sammenhengende N50-kystkontur
-- lukket havflate basert på kystkonturen
+- Én sammenhengende N50-kystkontur
+- Lukket havflate basert på kystkonturen
 - N50-StedsnavnTekst som 3D-punkt for tettsteder
 - N50-VegSenterlinje som 3D-linjer mellom tettsteder
 - N50-Terrengpunkt (inkl. fortetting nivå 4 og 5, fjellkjerner, flatepunkter)
 - N50-høydekurver (med filtrering og Chaikin-glatting)
-- tilfeldig generering med ny seed for hver kjøring
-- alle parametre sentralisert i `synthetic_map.py`
-- tester for geometri, variasjon og robusthet
+- Tettbebyggelse genereres nå med polygon i 8 retninger, tilfeldig radius [400,800] meter, fortetting og glatting
+- Tilfeldig generering med ny seed for hver kjøring
+- Alle parametre sentralisert i `synthetic_map.py`
+- Tester for geometri, variasjon og robusthet
 
 ## Teknologi
 
