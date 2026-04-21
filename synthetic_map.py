@@ -18,7 +18,11 @@ from syntetisk_kart.synthetic_n50_module import (
 )
 
 STANDARD_KONFIGURASJON: Dict[str, Any] = {
-    "bbox": (497929.0, 7027929.0, 512071.0, 7042071.0),
+    # BBOX med høyde (nord-sør) 8000 meter, behold samme sentrum
+    # Opprinnelig: (497929.0, 7027929.0, 512071.0, 7042071.0)
+    # Bredde beholdes (12000), høyde settes til 8000
+    # Senter: ((499000+511000)/2, (7030429+7044571)/2) = (505000, 7037500)
+    "bbox": (450000.0, 7033000.0, 462000.0, 7040000.0),
     "crs": "EPSG:25833",
     "seed": None,
     "n50_filnavn": "N50.gpkg",
@@ -29,6 +33,7 @@ STANDARD_KONFIGURASJON: Dict[str, Any] = {
     "terrenglag_navn": "n50_terrengpunkt",
     "tinlag_navn": "n50_tin",
     "hoydekurve_lag_navn": "n50_hoydekurve",
+    "trig_punkt_lag_navn": "n50_trigonometriskpunkt",
     "tilgjengelige_sider": ["vest", "ost", "sor", "nord"],
     "min_antall_sider": 4,
     "maks_antall_sider": 4,
@@ -36,7 +41,7 @@ STANDARD_KONFIGURASJON: Dict[str, Any] = {
     "hjornemargin": 300.0,
     "trim_forhold_ved_hjorner": 0.33,
     "maksimal_hjorneandel": 0.3,
-    "minste_segmentlengde": 1.0,
+    "minste_segmentlengde": 200.0,
     "avviksfaktor": 2.0,
     "maks_innoveravvik": 1400.0,
     "maks_forsok_per_side": 25,
@@ -46,7 +51,7 @@ STANDARD_KONFIGURASJON: Dict[str, Any] = {
     "tettsted_areal_per_ekstra": 12000000.0,
     "tettsted_kystandel": 0.4,
     "tettsted_kystavstand": 200.0,
-    "tettsted_avstand_min": 2000.0,
+    "tettsted_avstand_min": 1000.0,
     "tettsted_avstand_maks": 6000.0,
     "tettsted_kyst_hoyde": 15.0,
     "tettsted_hoyde_divisor": 20.0,
@@ -98,7 +103,7 @@ STANDARD_KONFIGURASJON: Dict[str, Any] = {
     "terreng_fjell_min_kystavstand": 1200.0,
     "terreng_fjell_min_tettstedavstand": 1500.0,
     "terreng_fjell_hoyde_min": 100.0,
-    "terreng_fjell_hoyde_maks": 400.0,
+    "terreng_fjell_hoyde_maks": 320.0,
     "terreng_fjell_spredning_min": 1200.0,
     "terreng_fjell_spredning_maks": 2500.0,
     "terreng_flate_radius": 1000.0,
@@ -110,6 +115,8 @@ STANDARD_KONFIGURASJON: Dict[str, Any] = {
     "hoydekurve_min_lengde": 50.0,
     # Antall iterasjoner for glatting av høydekurver (Chaikin)
     "hoydekurve_glatt_iterasjoner": 2,
+    # Toleranse for filtrering av terrengpunkter som ikke gir verdi (meter)
+    "terreng_filtrering_toleranse": 1.0,
 }
 
 
@@ -146,7 +153,7 @@ def generer_n50_kystkontur(
     havflate = generer_havflate(kystkontur, konfig)
     stedsnavntekst = generer_stedsnavntekst(kystkontur, havflate, konfig)
     vegsenterlinje = generer_vegsenterlinje(stedsnavntekst, kystkontur, havflate, konfig)
-    terrengpunkt = generer_terrengpunkt(kystkontur, havflate, stedsnavntekst, vegsenterlinje, konfig)
+    terrengpunkt, trig_punkt = generer_terrengpunkt(kystkontur, havflate, stedsnavntekst, vegsenterlinje, konfig)
     tin = generer_tin(terrengpunkt, havflate, konfig)
     hoydekurve = generer_hoydekurve(terrengpunkt, havflate, konfig)
 
@@ -163,6 +170,7 @@ def generer_n50_kystkontur(
     terrengpunkt.to_file(filsti, layer=str(konfig["terrenglag_navn"]), driver="GPKG", mode="a")
     tin.to_file(filsti, layer=str(konfig["tinlag_navn"]), driver="GPKG", mode="a")
     hoydekurve.to_file(filsti, layer=str(konfig["hoydekurve_lag_navn"]), driver="GPKG", mode="a")
+    trig_punkt.to_file(filsti, layer=str(konfig["trig_punkt_lag_navn"]), driver="GPKG", mode="a")
     return {
         "kystkontur": kystkontur,
         "havflate": havflate,
@@ -171,6 +179,7 @@ def generer_n50_kystkontur(
         "terrengpunkt": terrengpunkt,
         "tin": tin,
         "hoydekurve": hoydekurve,
+        "trigonometriskpunkt": trig_punkt,
         "filsti": filsti,
         "seed": konfig["seed"],
     }

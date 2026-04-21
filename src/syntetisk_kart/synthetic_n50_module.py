@@ -223,7 +223,7 @@ def generer_terrengpunkt(
     stedsnavntekst: gpd.GeoDataFrame,
     vegsenterlinje: gpd.GeoDataFrame,
     konfig: Dict[str, object],
-) -> gpd.GeoDataFrame:
+    ) -> Tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]:
     """Generer N50-terrengpunkt som 3D-punkter over landarealet."""
     tilfeldig = np.random.default_rng()
     bbox_polygon = box(*tuple(konfig["bbox"]))
@@ -244,6 +244,7 @@ def generer_terrengpunkt(
         for _, rad in stedsnavntekst.iterrows()
     ]
     fjellkjerner = _lag_fjellkjerner(landgeometri, kystlinje, tettsteder, vegsenterlinje, konfig, tilfeldig)
+    trig_punkt_liste = []
 
     terrengpunktdata: List[dict] = []
     brukte_punkter: List[Point] = []
@@ -318,6 +319,10 @@ def generer_terrengpunkt(
             "fjellkjerne",
             minste_avstand,
         )
+        trig_punkt_liste.append({
+            "hoyde": hoyde,
+            "geometry": Point(kjerne["punkt"].x, kjerne["punkt"].y, hoyde),
+        })
         type_teller["fjellkjerne"] += 1
         total_teller += 1
     print("Ferdig fjellkjerne, starter flate")
@@ -491,7 +496,11 @@ def generer_terrengpunkt(
     print("Antall terrengpunkter per type:")
     for t, antall in type_teller.items():
         print(f"  {t}: {antall}")
-    return gpd.GeoDataFrame(terrengpunktdata, geometry="geometry", crs=konfig["crs"])
+
+    # Returner alle genererte terrengpunkter og trigonometriske punkt
+    terreng_gdf = gpd.GeoDataFrame(terrengpunktdata, geometry="geometry", crs=konfig["crs"])
+    trig_gdf = gpd.GeoDataFrame(trig_punkt_liste, geometry="geometry", crs=konfig["crs"])
+    return terreng_gdf, trig_gdf
 
 
 def generer_tin(
