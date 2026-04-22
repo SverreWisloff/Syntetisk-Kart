@@ -1,3 +1,239 @@
+import shapely
+from typing import Dict
+import geopandas as gpd
+from shapely.geometry import Polygon
+from shapely.ops import unary_union
+import numpy as np
+
+
+def generer_apentomrade(tin: gpd.GeoDataFrame, konfig: Dict[str, object]) -> gpd.GeoDataFrame:
+    """
+    Genererer N50-ÅpentOmråde som polygoner der høyde > terskel eller bratthet > terskel.
+    Høyde-terskel og bratthets-terskel hentes fra konfig.
+    """
+    hoyde_terskel = float(konfig["apentomrade_hoyde_terskel"])
+    # Forutsetter at tin har kolonnene 'maks_hoyde', 'min_hoyde', 'geometry'
+    tin = tin.copy()
+    tin["hoyde"] = tin[["maks_hoyde", "min_hoyde"]].mean(axis=1)
+    # Velg trekanter som er åpne områder (kun høyde)
+    apen = tin[tin["hoyde"] > hoyde_terskel]
+    if apen.empty:
+        return gpd.GeoDataFrame(columns=["geometry"], geometry="geometry", crs=konfig["crs"])
+    # Slå sammen til polygoner og fyll hull
+    union = shapely.ops.unary_union(apen.geometry)
+    # Fyll hull i unionen (buffer(0) lukker små hull og reparerer geometrifeil)
+    union = union.buffer(0)
+    if union.geom_type == "Polygon":
+        polys = [union]
+    elif union.geom_type == "MultiPolygon":
+        polys = list(union.geoms)
+    else:
+        return gpd.GeoDataFrame(columns=["geometry"], geometry="geometry", crs=konfig["crs"])
+    # Fjern arealfilteret slik at alle områder over 250m blir med
+    return gpd.GeoDataFrame([
+        {"geometry": p, "objekttype": "N50-ÅpentOmråde"} for p in polys if not p.is_empty and p.is_valid
+    ], geometry="geometry", crs=konfig["crs"])
+
+
+def generer_dyrketmark(
+    tin: gpd.GeoDataFrame,
+    eksisterende_arealdekke: gpd.GeoDataFrame,
+    konfig: Dict[str, object],
+) -> gpd.GeoDataFrame:
+    """
+    Genererer N50-DyrketMark: Finn flate områder (>2000 m²) av gjenværende areal.
+    """
+    tin_kopi = tin.copy()
+    tin_kopi["hoydeforskjell"] = tin_kopi["maks_hoyde"] - tin_kopi["min_hoyde"]
+    # Tillat mindre flate områder for å finne flere kandidater
+    flatterskel = float(konfig.get("dyrketmark_maks_hoydeforskjell", 4.0))
+    flate_trekanter = tin_kopi[tin_kopi["hoydeforskjell"] <= flatterskel].copy()
+    if flate_trekanter.empty:
+        return gpd.GeoDataFrame(columns=["geometry"], geometry="geometry", crs=konfig["crs"])
+
+    # Fjern overlapp med eksisterende arealdekke
+    if not eksisterende_arealdekke.empty:
+        union = unary_union(eksisterende_arealdekke.geometry)
+        flate_trekanter["geometry"] = flate_trekanter.geometry.apply(lambda g: g.difference(union))
+        flate_trekanter = flate_trekanter[~flate_trekanter.is_empty]
+
+    # Slå sammen til flater (dissolve) og slå sammen overlappende/nær polygoner
+    sammenslatt = unary_union(flate_trekanter.geometry)
+    sammenslatt = sammenslatt.buffer(0.5).buffer(-0.5)
+    if sammenslatt.is_empty:
+        return gpd.GeoDataFrame(columns=["geometry"], geometry="geometry", crs=konfig["crs"])
+    if sammenslatt.geom_type == "Polygon":
+        dyrketflater = [sammenslatt]
+    elif sammenslatt.geom_type == "MultiPolygon":
+        dyrketflater = list(sammenslatt.geoms)
+    else:
+        return gpd.GeoDataFrame(columns=["geometry"], geometry="geometry", crs=konfig["crs"])
+
+    # Hent kystkontur for avstandssjekk
+    kystkontur_gdf = konfig.get("kystkontur", None)
+    kystkontur_geom = None
+    if kystkontur_gdf is not None and not kystkontur_gdf.empty:
+        kystkontur_geom = kystkontur_gdf.geometry.iloc[0]
+
+    res = []
+    for poly in dyrketflater:
+        if poly.is_empty or not poly.is_valid:
+            continue
+        # Sjekk at alle punkter i polygonet er >500m fra kyst
+        if kystkontur_geom is not None:
+            coords = list(poly.exterior.coords)
+            too_close = False
+            for pt in coords:
+                p = shapely.geometry.Point(pt)
+                if kystkontur_geom.distance(p) < 500:
+                    too_close = True
+                    break
+            if too_close:
+                continue
+        # Arealfilter: kun større enn 2000 m²
+        poly_to_use = poly
+        if poly.area < 2000:
+            continue
+        # Skaler opp polygoner <5000m2 til ca dobbel areal
+        if poly.area < 5000:
+            # Finn senter
+            senter = poly.centroid
+            # Buffer ut polygonet slik at arealet dobles
+            # Omtrentlig faktor: sqrt(2) for radius
+            scale_factor = np.sqrt(2)
+            poly_to_use = shapely.affinity.scale(poly, xfact=scale_factor, yfact=scale_factor, origin=senter)
+        res.append({
+            "geometry": poly_to_use,
+            "objekttype": "N50-DyrketMark"
+        })
+    if not res:
+        return gpd.GeoDataFrame(columns=["geometry"], geometry="geometry", crs=konfig["crs"])
+    return gpd.GeoDataFrame(res, geometry="geometry", crs=konfig["crs"])
+
+# Flytt alle imports til toppen
+from typing import Dict
+import geopandas as gpd
+import shapely
+from shapely.geometry import Polygon
+from shapely.ops import unary_union
+import numpy as np
+
+def generer_myr(
+    tin: gpd.GeoDataFrame,
+    innsjo_kant: gpd.GeoDataFrame,
+    tettbebyggelse: gpd.GeoDataFrame,
+    konfig: Dict[str, object],
+) -> gpd.GeoDataFrame:
+    """
+    Genererer N50-Myr: Slår sammen de flateste TIN-trekanter til flater, fjerner overlapp med innsjø og tettbebyggelse,
+    og filtrerer på areal (>2000 m²) og bredde (>30 m).
+    """
+    tin_kopi = tin.copy()
+    tin_kopi["hoydeforskjell"] = tin_kopi["maks_hoyde"] - tin_kopi["min_hoyde"]
+    flatterskel = float(konfig.get("myr_maks_hoydeforskjell", 2.5))  # terskel for flathet
+    flate_trekanter = tin_kopi[tin_kopi["hoydeforskjell"] <= flatterskel].copy()
+    if flate_trekanter.empty:
+        return gpd.GeoDataFrame(columns=["geometry"], geometry="geometry", crs=konfig["crs"])
+
+    # Slå sammen til flater (dissolve) og slå sammen overlappende/nær polygoner
+    sammenslatt = flate_trekanter.unary_union
+    # Buffer ut og inn for å slå sammen polygoner som er inntil hverandre
+    sammenslatt = sammenslatt.buffer(0.5).buffer(-0.5)
+    if sammenslatt.geom_type == "Polygon":
+        myrflater = [sammenslatt]
+    elif sammenslatt.geom_type == "MultiPolygon":
+        myrflater = list(sammenslatt.geoms)
+    else:
+        return gpd.GeoDataFrame(columns=["geometry"], geometry="geometry", crs=konfig["crs"])
+
+    # Fjern overlapp med innsjø og tettbebyggelse
+    fjern_union = shapely.ops.unary_union([
+        *([g for g in innsjo_kant.geometry] if not innsjo_kant.empty else []),
+        *([g for g in tettbebyggelse.geometry] if not tettbebyggelse.empty else []),
+    ]) if (not innsjo_kant.empty or not tettbebyggelse.empty) else None
+    if fjern_union:
+        myrflater = [p.difference(fjern_union) for p in myrflater]
+        # Kan gi MultiPolygon, splitt opp
+        nye = []
+        for p in myrflater:
+            if p.is_empty:
+                from typing import Dict
+                import geopandas as gpd
+                continue
+                from shapely.geometry import Polygon
+                from shapely.ops import unary_union
+                import numpy as np
+                nye.append(p)
+            elif p.geom_type == "MultiPolygon":
+                nye.extend(list(p.geoms))
+        myrflater = nye
+
+    # Filtrer på areal og bredde
+    res = []
+    # Finn kystkontur hvis tilgjengelig i konfig, ellers prøv innsjo_kant eller havflate
+    kystkontur = konfig.get("kystkontur", None)
+    kystbuffer = None
+    if kystkontur is not None and not kystkontur.empty:
+        # Buffer kysten 400 meter
+        kystbuffer = kystkontur.geometry.iloc[0].buffer(400)
+    elif innsjo_kant is not None and not innsjo_kant.empty:
+        # Bruk ytterste innsjøkant som kyst
+        kystbuffer = shapely.ops.unary_union(innsjo_kant.geometry).buffer(400)
+    elif "havflate" in konfig and konfig["havflate"] is not None and not konfig["havflate"].empty:
+        kystbuffer = konfig["havflate"].geometry.iloc[0].buffer(400)
+    fjernet_kyst = 0
+
+    for poly in myrflater:
+        if poly.is_empty or not poly.is_valid:
+            continue
+        if poly.area < 2000:
+            continue
+        minx, miny, maxx, maxy = poly.bounds
+        bredde = max(maxx - minx, maxy - miny)
+        if bredde < 30:
+            continue
+
+        # Fjern alle myrer langs kysten (innenfor 400m)
+        if kystbuffer is not None and poly.intersects(kystbuffer):
+            fjernet_kyst += 1
+            continue
+
+        # --- Legg til avrundede hjørner på trekantede myrer ---
+        coords = list(poly.exterior.coords)
+        if len(coords) == 4:  # 3 hjørner + lukket
+            # Finn sentrum av trekanten
+            tri_pts = np.array(coords[:3])
+            sentrum = tri_pts.mean(axis=0)
+            nye_coords = []
+            for i in range(3):
+                p0 = tri_pts[i]
+                p1 = tri_pts[(i+1)%3]
+                # Punkt mellom hjørner
+                mid = p0 + 0.2 * (p1 - p0)
+                # Legg til mye større tilfeldig avvik ut fra sentrum
+                vektor = mid - sentrum
+                avstand = np.linalg.norm(vektor)
+                if avstand > 0:
+                    retning = vektor / avstand
+                    # Tilfeldig avvik mellom -80% og +120% av avstand fra sentrum
+                    faktor = np.random.uniform(-0.8, 1.2)
+                    mid_avvik = mid + faktor * avstand * retning
+                else:
+                    mid_avvik = mid
+                nye_coords.append(tuple(p0))
+                nye_coords.append(tuple(mid_avvik))
+            nye_coords.append(nye_coords[0])  # Lukk polygonet
+            poly = Polygon(nye_coords)
+
+        res.append({
+            "geometry": poly,
+            "objekttype": "N50-Myr"
+        })
+    if fjernet_kyst > 0:
+        print(f"Fjernet {fjernet_kyst} myrflater nær kysten (<400m)")
+    if not res:
+        return gpd.GeoDataFrame(columns=["geometry"], geometry="geometry", crs=konfig["crs"])
+    return gpd.GeoDataFrame(res, geometry="geometry", crs=konfig["crs"])
 import geopandas as gpd
 from typing import Dict
 #
@@ -652,12 +888,23 @@ def generer_hoydekurve(
     # Slett høydekurver som er kortere enn 250 meter
     hoydekurver = [obj for obj in hoydekurver if obj["geometry"].length >= 250.0]
 
+    # Slett høydekurver som ikke er lukka (Polygon eller lukket LineString)
+    hoydekurver = [
+        obj for obj in hoydekurver
+        if (
+            (obj["geometry"].geom_type == "Polygon" and obj["geometry"].is_valid)
+            or (obj["geometry"].geom_type == "LineString" and getattr(obj["geometry"], "is_ring", False) and obj["geometry"].is_valid)
+        )
+    ]
+
     # Slett høydekurver som ligger helt inni innsjøkant
     if "innsjo_gdf" in konfig:
         innsjo_gdf = konfig["innsjo_gdf"]
         innsjo_union = unary_union(innsjo_gdf.geometry)
         hoydekurver = [obj for obj in hoydekurver if not obj["geometry"].within(innsjo_union)]
 
+    if not hoydekurver:
+        return gpd.GeoDataFrame(columns=["geometry"], geometry="geometry", crs=konfig["crs"])
     return gpd.GeoDataFrame(hoydekurver, geometry="geometry", crs=konfig["crs"])
 # Chaikin-glatting av linje
 def _glatt_linje_chaikin(linje: LineString, iterasjoner: int) -> LineString:

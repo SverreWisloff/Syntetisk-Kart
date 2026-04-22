@@ -6,6 +6,7 @@ from syntetisk_kart.synthetic_n50_module import generer_tettbebyggelse, generer_
 import argparse
 import os
 from pathlib import Path
+from shapely.geometry import box
 from typing import Any, Dict, Optional
 
 from syntetisk_kart.synthetic_n50_module import (
@@ -18,12 +19,16 @@ from syntetisk_kart.synthetic_n50_module import (
     generer_vegsenterlinje,
 )
 
+from geopandas import GeoDataFrame
+import pandas as pd
+
 STANDARD_KONFIGURASJON: Dict[str, Any] = {
     # BBOX med høyde (nord-sør) 8000 meter, behold samme sentrum
     # Opprinnelig: (497929.0, 7027929.0, 512071.0, 7042071.0)
     # Bredde beholdes (12000), høyde settes til 8000
     # Senter: ((499000+511000)/2, (7030429+7044571)/2) = (505000, 7037500)
-    "bbox": (450000.0, 7033000.0, 462000.0, 7040000.0),
+    # Utvidet BBOX: 1000 meter bredere (500 meter på hver side)
+    "bbox": (449500.0, 7033000.0, 462500.0, 7040000.0),
     "crs": "EPSG:25833",
     "seed": None,
     "n50_filnavn": "N50.gpkg",
@@ -118,6 +123,11 @@ STANDARD_KONFIGURASJON: Dict[str, Any] = {
     "hoydekurve_glatt_iterasjoner": 2,
     # Toleranse for filtrering av terrengpunkter som ikke gir verdi (meter)
     "terreng_filtrering_toleranse": 1.0,
+    # Parametre for ÅpentOmråde, DyrketMark og Myr
+    "apentomrade_hoyde_terskel": 250.0,
+    "dyrketmark_maks_hoydeforskjell": 2.0,
+    "myr_maks_hoydeforskjell": 10.0,
+    # Andre parametre kan legges til etter behov
 }
 
 
@@ -168,6 +178,71 @@ def generer_n50_kystkontur(
     if innsjo_union:
         hoydekurve = hoydekurve[~hoydekurve.geometry.within(innsjo_union)]
 
+
+    # 4. Generer N50-Myr
+
+    from syntetisk_kart.synthetic_n50_module import generer_myr, generer_apentomrade, generer_dyrketmark
+    myr = generer_myr(tin, innsjo_kant, tettbebyggelse, konfig)
+
+    # 5. Generer N50-ÅpentOmråde
+    apentomrade = generer_apentomrade(tin, konfig)
+
+
+
+    # Klipp alle arealdekke-lag mot landareal (bbox minus havflate)
+    from shapely.ops import unary_union
+    bbox_polygon = box(*tuple(konfig["bbox"]))
+    landareal = bbox_polygon.difference(havflate.geometry.iloc[0])
+
+    def klipp_til_land(gdf):
+        if gdf is None or gdf.empty:
+            return gdf
+        gdf = gdf.copy()
+        gdf["geometry"] = gdf.geometry.intersection(landareal)
+        gdf = gdf[~gdf.is_empty & gdf.geometry.notnull()]
+        return gdf
+
+    innsjo_kant = klipp_til_land(innsjo_kant)
+    tettbebyggelse = klipp_til_land(tettbebyggelse)
+    myr = klipp_til_land(myr)
+    apentomrade = klipp_til_land(apentomrade)
+
+    # Slå sammen eksisterende arealdekke: myr, innsjøkant, tettbebyggelse, åpent område
+    arealdekke_lag = []
+    for lag in [myr, innsjo_kant, tettbebyggelse, apentomrade]:
+        if lag is not None and not lag.empty:
+            arealdekke_lag.append(lag)
+    if arealdekke_lag:
+        eksisterende_arealdekke = GeoDataFrame(pd.concat(arealdekke_lag, ignore_index=True), geometry="geometry", crs=konfig["crs"])
+    else:
+        eksisterende_arealdekke = GeoDataFrame(columns=["geometry"], geometry="geometry", crs=konfig["crs"])
+
+    # Bruk tidligere dyrketmark-algoritme til å lage ÅpentOmråde
+    apentomrade2 = generer_dyrketmark(tin, eksisterende_arealdekke, konfig)
+    apentomrade2 = klipp_til_land(apentomrade2)
+
+    # 7. Generer N50-Skog: alt landareal minus union av alle andre arealdekker
+    alle_arealdekker = []
+    for lag in [kystkontur, innsjo_kant, tettbebyggelse, myr, apentomrade, apentomrade2]:
+        if lag is not None and not lag.empty:
+            alle_arealdekker.extend(list(lag.geometry))
+    if alle_arealdekker:
+        ikke_skog = unary_union(alle_arealdekker)
+        skog_geom = landareal.difference(ikke_skog)
+    else:
+        skog_geom = landareal
+    # Del opp i polygoner hvis MultiPolygon
+    if skog_geom.is_empty:
+        skog_gdf = GeoDataFrame(columns=["geometry"], geometry="geometry", crs=konfig["crs"])
+    elif skog_geom.geom_type == "Polygon":
+        skog_gdf = GeoDataFrame([{"geometry": skog_geom, "objekttype": "N50-Skog"}], geometry="geometry", crs=konfig["crs"])
+    elif skog_geom.geom_type == "MultiPolygon":
+        skog_gdf = GeoDataFrame([
+            {"geometry": p, "objekttype": "N50-Skog"} for p in skog_geom.geoms if not p.is_empty and p.is_valid
+        ], geometry="geometry", crs=konfig["crs"])
+    else:
+        skog_gdf = GeoDataFrame(columns=["geometry"], geometry="geometry", crs=konfig["crs"])
+
     output_sti = Path(output_katalog)
     output_sti.mkdir(parents=True, exist_ok=True)
     filsti = output_sti / str(konfig["n50_filnavn"])
@@ -184,6 +259,10 @@ def generer_n50_kystkontur(
     trig_punkt.to_file(filsti, layer=str(konfig["trig_punkt_lag_navn"]), driver="GPKG", mode="a")
     tettbebyggelse.to_file(filsti, layer="n50_tettbebyggelse", driver="GPKG", mode="a")
     innsjo_kant.to_file(filsti, layer="n50_innsjokant", driver="GPKG", mode="a")
+    myr.to_file(filsti, layer="n50_myr", driver="GPKG", mode="a")
+    apentomrade.to_file(filsti, layer="n50_apentomrade", driver="GPKG", mode="a")
+    apentomrade2.to_file(filsti, layer="n50_apentomrade2", driver="GPKG", mode="a")
+    skog_gdf.to_file(filsti, layer="n50_skog", driver="GPKG", mode="a")
     return {
         "kystkontur": kystkontur,
         "havflate": havflate,
@@ -195,6 +274,10 @@ def generer_n50_kystkontur(
         "trigonometriskpunkt": trig_punkt,
         "tettbebyggelse": tettbebyggelse,
         "innsjokant": innsjo_kant,
+        "myr": myr,
+        "apentomrade": apentomrade,
+        "apentomrade2": apentomrade2,
+        "skog": skog_gdf,
         "filsti": filsti,
         "seed": konfig["seed"],
     }
@@ -212,6 +295,8 @@ def main() -> None:
     bruker_konfig = {"seed": fast_seed}
     print("Starter full generering og lagring av N50.gpkg...")
     result = generer_n50_kystkontur(output_katalog=args.output, bruker_konfig=bruker_konfig)
+    print(f"Antall myr: {len(result['myr'])}")
+    print(f"Antall innsjøkant: {len(result['innsjokant'])}")
     print(f"N50.gpkg skrevet til: {result['filsti']}")
     print(f"Antall terrengpunkt: {len(result['terrengpunkt'])}")
 

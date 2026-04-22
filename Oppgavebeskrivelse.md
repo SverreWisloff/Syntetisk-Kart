@@ -30,10 +30,6 @@ Bygg løsningen modulært med én orkestrator og temamoduler:
 
 ## Overordnet plan for generering av syntetisk kart:
 1) 🗺️ Lag først et Oversiktskart, N50. Dette er en slags disposisjon for overordnet kart.
-    - a) Lag Sjøkant. Denne går langs kanten på området, og dekker minimul en side, men kan også gå rundt hele som en øy
-    - b) Lag Tettsteder, jo større område - jo flere tettsteder
-    - c) Lag Fylkesveger (senterlinje) mellom tettsteder
-    - d) Legg på høyder på Tettsteder og Fylkesveger, Lag åser mellom riksveger, Lag noen flate områder også
 2) 🚗 Lag Veger
 3) ⛰️ Lag Høydekurver
 4) 💧 Lag Vann 
@@ -46,11 +42,20 @@ Bygg løsningen modulært med én orkestrator og temamoduler:
 - Kartfil: N50.gpkg
 - Modulskript: Syntetisk_N50.py
 - Objekttyper: 
-  - N50-Kystkontur(2D-kurve)  
-  - N50-StedsnavnTekst(3D-Punkt, Egenskap: Navneobjekttype=By)
-  - N50-VegSenterlinje(3D-linje)
-  - N50-Terrengpunkt(3D-Punkt)
-  - N50-Hoydekurve(2D-kurve)
+  - N50-Kystkontur (2D-kurve)
+  - N50-Havflate (Polygon)
+  - N50-StedsnavnTekst (3D-Punkt, Egenskap: Navneobjekttype=By)
+  - N50-VegSenterlinje (3D-linje)
+  - N50-Terrengpunkt (3D-Punkt)
+  - N50-TIN (Trekantnett)
+  - N50-Tettbebyggelse (Polygon)
+  - N50-Hoydekurve (2D-kurve)
+  - N50-Innsjøkant (Polygon)
+  - N50-Myr (Polygon)
+  - N50-ÅpentOmråde (Polygon)
+  - N50-DyrketMark (Polygon)
+  - N50-Skog (Polygon)
+  - N50-TrigonometriskPunkt (3D-Punkt)
 
 2) Veg
 - Kartfil: FKB-Veg.gpkg
@@ -79,10 +84,28 @@ Bygg løsningen modulært med én orkestrator og temamoduler:
 - Objekttyper: 
   - FKB-Takkant
 
-6) AR50
-- <TODO>
+6) AR5
+- 
 
 ## Algoritmer for generering av objekttyper
+
+### Rekkefølge for generering av N50-objekttyper:
+1. N50-Kystkontur
+2. N50-Havflate
+3. N50-StedsnavnTekst
+4. N50-VegSenterlinje
+5. N50-Terrengpunkt
+6. N50-TIN
+7. N50-Tettbebyggelse
+8. N50-Hoydekurve
+9. N50-Innsjøkant
+10. N50-Myr
+11. N50-ÅpentOmråde
+12. N50-DyrketMark
+13. N50-Skog
+14. N50-TrigonometriskPunkt
+
+Denne rekkefølgen sikrer at alle avhengigheter mellom lagene ivaretas, og at arealdekke-lagene klippes og prioriteres riktig.
 
 ### N50-Kystkontur (2D-kurve) 
 Kystkontur skal alltid følge 4 kanter, slik at det lages en øy hver gang.
@@ -161,38 +184,33 @@ Lagre TIN i N50.
 Generer Hoydekurver med ekvidistande=20m basert på TIN.
 Slett høydekurver som har kortere lengde enn 250 m
 Glatt høydekurvene.
+Høydekurver som ikke er lukka polygoner slettes.
 
 ### N50-TrigonometriskPunkt
 Terrengpunkt av typen "fjellkjede" kopieres med høyden til et eget lag: N50-TrigonometriskPunkt (3D-punkt)
 
---------------------------
-## TODO CHAT
---------------------------
-Ikke lag fortettingspunkter som er nermere et annet  fortettingspunkt enn 20m
-
-Lag noen forsenklinger på 30m i terrenget.?
-
-I Nivå 4 settes høyden på nye punkt er TIN-interpolert høyde for x,y + tilfeldig verdi for hvert punkt: [-10 , 30.0]. Gjør om dette til[-30 , 30.0], som kan medføre noen lavere områder
-
-
 ## Arealdekke
 N50 har heldekkende Arealdekke som beskriver alt areal. 
 Arealdekke består av disse objekttypene
-- Kystkontur
-- Tettbebyggelse
+- Havflate
 - Innsjøkant
+- Bebyggelse
 - Myr
+- ÅpentOmråde
 - DyrketMark
 - Skog
+
+Det skal ikke være overlapp mellom Arealbruk. 
+Dersom det er overlapp mellom Arealdekkene, skal polygonene reduseres slik at de ikke er overlappende. arealene som blir stående igjen, ha prioritet, er etter prioritert liste over.
 
 ### N50-Tettbebyggelse
 Lag et polygon rundt tettsted-punktene. I steden for en sirkel med radius=500m, la den avvike fra sirkelen som en amøbefigur. 
 
 Tettbebyggelse-agoritme:
-Fra senter generer punkt i 8 retninger, alle med avstand fra senter lik bebyggelses-radius +- tilfeldig avvik på 30%.
-Lag et polygon baset på disse 8 punktene. 
-Fortett dette polygonet slik at det blir et glatt polygon.
-Punktavstand i polygonen trenger ikke fortettes tettere enn punktavstand 100m.
+- Fra senter generer punkt i 8 retninger, alle med avstand fra senter lik bebyggelses-radius +- tilfeldig avvik på 30%.
+- Lag et polygon baset på disse 8 punktene. 
+- Fortett dette polygonet slik at det blir et glatt polygon.
+- Punktavstand i polygonen trenger ikke fortettes tettere enn punktavstand 100m.
 
 Når Tettbebyggelse genereres kan bebyggelses-radius settes lik et tilfeldig tall i intervallet [400, 1000], slik at de ulike Tettbebyggelse blir litt ulikt store
 
@@ -208,27 +226,51 @@ Innsjøer som er større enn 300 m² og bredere enn 15 meter, tas med.
 ### N50-Myr
 Noen av de aller flateste områdene defineres som myr
 Noen ganger kommer to myr-flater rett ved siden av hverandre. Slå disse sammen til en flate.
-Myr som er større enn 2000m2 og bredere enn 30 m, tas med
+Myr som er større enn 2000m2 og bredere enn 30 m, tas med.
+For myr-polygoner som består av 3 punkter, legg til et par punkter slik at det gir litt annen form.
+Ta vekk myrene langs kysten (200m).
+Slå sammen myr-polygoner som ligger inntil eller overlappende.
+
+### N50-ÅpentOmråde
+Alt over 250m høyde er ÅpentOmråde. Dette må være en parameter.
+Bratt terreng er ÅpentOmråde.
+ÅpentOmråde lagres som N50-ÅpentOmråde og er et 2D-polygon
 
 ### N50-DyrketMark
 Av det gjenværende arealet, finn noen relativt flate områder > 2000m2. Disse lagres som N50-DyrketMark
 
-Det skel ikke være overlapp mellom Arealbruk. Dersom det er overlapp mellom Myr, Innsjø, Bebyggelse, skal Innsjø gå foran Bebyggelse, som går foran Myr
-
 ### N50-Skog
-Resten av arealene er lagres som Barskog
+Resten av arealene er lagres som Skog
 
-## N50-VegSenterlinjeR (3D-linje)
-Beskrivelse for N50-VegSenterlinje er for Riksveger. Korriger både her og i koden slik at det heter N50-VegSenterlinjeR
 
-## N50-VegSenterlinjeK (3D-linje)
-Rund tettstedene skal Kommunale veger genereres.
+--------------------------
+## CHAT
+--------------------------
+
+For få myrer.
+
+Ikke lag fortettingspunkter som er nærmere et annet fortettingspunkt enn 20m
+
 
 
 --------------------------
 **HIT HAR JEG KOMMET**
 --------------------------
 
+## N50-VegSenterlinjeFylke (3D-linje)
+Beskrivelse for N50-VegSenterlinje er for Fylkesveg. Korriger både her og i koden slik at det heter N50-VegSenterlinjeR
+
+## N50-VegSenterlinjeKommunal (3D-linje)
+Rund tettstedene skal Kommunale veger genereres.
+
+## N50-VegSenterlinjePrivat (3D-linje)
+Rund tettstedene skal Kommunale veger genereres.
+
+## N50-Gård (2D-Punkt)
+Genereres etter VegSenterlinjeFylke.
+Etter Fylkesvei genereren Gårder, og Private veger frfa Fylkesvei til gårdene
+
+La en polygon rundt Gårdene som blir polygon for DyrketMark. Bruk samme logikk som hvordan Tettbebyggelse lages, men med ca-radius på 500m
 
 
 
@@ -236,19 +278,12 @@ Rund tettstedene skal Kommunale veger genereres.
 
 
 
+## Linker:
 
-Linker:
 
-N50: Produktspesifikasjon for N50 Kartdata
-https://register.geonorge.no/data/documents/Produktspesifikasjoner_N50%20Kartdata_v15_produktspesifikasjon-kartverket-n50kartdata-versjon20170401_.pdf
-
-N50: Produktspesifikasjon for N50 Raster
-https://register.geonorge.no/data/documents/produktspesifikasjoner_N50%20Raster_v1_produktspesifikasjon-kv-n50-raster-versjon20150401_.pdf
-
-FKB Registreringsinstrukser
-https://register.geonorge.no/nasjonale-standarder-og-veiledere/kartleggingsinstrukser
-
-Kartografi
-https://register.geonorge.no/data/documents/N50%20Kartdata._Spesifikasjon%20Skjermkartografi%2020091102.pdf
+- [N50: Produktspesifikasjon for N50 Kartdata](https://register.geonorge.no/data/documents/Produktspesifikasjoner_N50%20Kartdata_v15_produktspesifikasjon-kartverket-n50kartdata-versjon20170401_.pdf)
+- [N50: Produktspesifikasjon for N50 Raster](https://register.geonorge.no/data/documents/produktspesifikasjoner_N50%20Raster_v1_produktspesifikasjon-kv-n50-raster-versjon20150401_.pdf)
+- [FKB Registreringsinstrukser](https://register.geonorge.no/nasjonale-standarder-og-veiledere/kartleggingsinstrukser)
+- [Kartografi](https://register.geonorge.no/data/documents/N50%20Kartdata._Spesifikasjon%20Skjermkartografi%2020091102.pdf)
 
 
