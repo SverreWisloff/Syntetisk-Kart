@@ -45,7 +45,7 @@ Bygg løsningen modulært med én orkestrator og temamoduler:
   - N50-Kystkontur (2D-kurve)
   - N50-Havflate (Polygon)
   - N50-StedsnavnTekst (3D-Punkt, Egenskap: Navneobjekttype=By)
-  - N50-VegSenterlinje (3D-linje)
+  - N50-VegSenterlinjeFylke (3D-linje)
   - N50-Terrengpunkt (3D-Punkt)
   - N50-TIN (Trekantnett)
   - N50-Tettbebyggelse (Polygon)
@@ -93,7 +93,7 @@ Bygg løsningen modulært med én orkestrator og temamoduler:
 1. N50-Kystkontur
 2. N50-Havflate
 3. N50-StedsnavnTekst
-4. N50-VegSenterlinje
+4. N50-VegSenterlinjeFylke
 5. N50-Terrengpunkt
 6. N50-TIN
 7. N50-Tettbebyggelse
@@ -123,11 +123,11 @@ Minst ett innlands-tettsted lengst fra kysten, med høyde=avstand til kyst / 20.
 Det skal være tettsteder ved kysten med tilfeldig avstand mellom 2km og 6km. Tettsteder ved kysten har høyde=15m
 Generer flere innlands-tettsteder slik at avstanden mellom tettsteder har avstand mellom 2km og 6km.  Høyde=avstand til kyst / 20.
 
-### N50-VegSenterlinje (3D-linje)
-Lag rette linjer som N50-VegSenterlinje mellom tettstedene etter TIN-prinsippet.
+### N50-VegSenterlinjeFylke (3D-linje)
+Lag rette linjer som N50-VegSenterlinjeFylke mellom tettstedene etter TIN-prinsippet.
 Generer tilfeldig horisontalkurvatur på veiene. Bruk "Veggenereringsalgoritmen" med parametre for Riksveg. Vegbredde=10 m. Bueradius=tilfeldig tall for hver sving i intervallet[150, 250] m. Segmentlengde=bueradius * tilfeldig faktor i intervallet [1.0, 1.6]
 Veger skal ikke krysses, og ikke krysse kystkontur.
-Legg på høyden på alle punkter i VegSenterlinje: Start og slutt på alle veger er på et tettsted, hent høyden fra disse punktene. Senterlinje deles i to, og midtpunktet er snitt av de to endepunkthøydene, pluss/minus et tilfeldig tall < Linjeavtande/40. Prosessen gjentas rekursivt inntill alle punkter i N50-VegSenterlinje har høyde.
+Legg på høyden på alle punkter i VegSenterlinjeFylke: Start og slutt på alle veger er på et tettsted, hent høyden fra disse punktene. Senterlinje deles i to, og midtpunktet er snitt av de to endepunkthøydene, pluss/minus et tilfeldig tall < Linjeavtande/40. Prosessen gjentas rekursivt inntill alle punkter i N50-VegSenterlinjeFylke har høyde.
 
 #### Veggenereringsalgoritmen
 Startpunkt og endepunkt.
@@ -140,6 +140,15 @@ Hver iterasjon
  - Fra et segment til et annet skal det være tangentkontinuitet.
  - Når vegen er nær nok endepunktet(<3*segmentlengden), legges siste del inn som bue mot avslutning mot målet. Buen beregnes slik at den er tangent-kontinuerlig, og avsluttes i endepunkt.
  Til slutt valideres kandidatlinjen. Hvis linjen krysser seg selv, eller er nærmere en annen veg enn 15m, forkastes den og algoritmen prøver på nytt opptil et gitt antall forsøk.
+
+## N50-Gård (2D-Punkt)
+Etter VegSenterlinjeFylke generes Gårder, og Private veger frfa Fylkesvei til gårdene slik:
+- 40% ut på VegSenterlinjeFylke, Genereres to Gårder. Disse Gårdene ligger på samme side av VegSenterlinjeFylke, tilfeldig avstand fra VegSenterlinjeFylke i intervallet [50, 300]. Avstanden mellom Gårdene er mer enn 150m. Gårdene lagres som N50-Gård (punkt).
+## N50-VegSenterlinjePrivat (3D-linje)
+- Fra hver av gårdene går det veg til VegSenterlinjeFylke. Vegene lagres som N50-VegSenterlinjePrivat, 3D-Linje, alle punktene på vegen har høyde lik den høyden som punktet på VegSenterlinjeFylke som VegSenterlinjePrivat snapper seg inn på.
+
+## N50-DyrketMark
+La en polygon rundt Gårdene som blir polygon for DyrketMark. Bruk samme logikk som hvordan Tettbebyggelse lages, men med ca-radius på 500m
 
 ### N50-Terrengpunkt (3D-Punkt)
 Tettsteder ligger i daler. Nå skal det genereres punkter for fjell.
@@ -257,8 +266,11 @@ Ikke lag fortettingspunkter som er nærmere et annet fortettingspunkt enn 20m
 **HIT HAR JEG KOMMET**
 --------------------------
 
-## N50-VegSenterlinjeFylke (3D-linje)
-Beskrivelse for N50-VegSenterlinje er for Fylkesveg. Korriger både her og i koden slik at det heter N50-VegSenterlinjeR
+
+
+## N50-VegSenterlinjePrivat (3D-linje)
+Rund tettstedene skal Kommunale veger genereres.
+
 
 ## N50-VegSenterlinjeKommunal (3D-linje)
 Rund tettstedene skal Kommunale veger genereres.
@@ -266,11 +278,7 @@ Rund tettstedene skal Kommunale veger genereres.
 ## N50-VegSenterlinjePrivat (3D-linje)
 Rund tettstedene skal Kommunale veger genereres.
 
-## N50-Gård (2D-Punkt)
-Genereres etter VegSenterlinjeFylke.
-Etter Fylkesvei genereren Gårder, og Private veger frfa Fylkesvei til gårdene
 
-La en polygon rundt Gårdene som blir polygon for DyrketMark. Bruk samme logikk som hvordan Tettbebyggelse lages, men med ca-radius på 500m
 
 
 

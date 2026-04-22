@@ -1,9 +1,117 @@
-import shapely
-from typing import Dict
 import geopandas as gpd
-from shapely.geometry import Polygon
-from shapely.ops import unary_union
+from typing import Dict
+def generer_dyrketmark_rundt_gard(gard_gdf: gpd.GeoDataFrame, konfig: Dict[str, object]) -> gpd.GeoDataFrame:
+    """
+    Genererer N50-DyrketMark som polygon rundt hver gård, med ca-radius 500m og amøbeform (samme logikk som tettbebyggelse).
+    """
+    import numpy as np
+    from shapely.geometry import Polygon
+    resultater = []
+    antall_retn = 8
+    for _, rad in gard_gdf.iterrows():
+        x0, y0 = rad.geometry.x, rad.geometry.y
+        base_radius = 500.0
+        punkter = []
+        for i in range(antall_retn):
+            vinkel = 2 * np.pi * i / antall_retn
+            avvik = np.random.uniform(0.7, 1.3)
+            r = base_radius * avvik
+            x = x0 + r * np.cos(vinkel)
+            y = y0 + r * np.sin(vinkel)
+            punkter.append((x, y))
+        poly = Polygon(punkter)
+        # Fortett polygonen: interpoler punkter slik at punktavstand ~100m
+        coords = list(poly.exterior.coords)
+        fortettet_coords = []
+        for i in range(len(coords)-1):
+            x1, y1 = coords[i]
+            x2, y2 = coords[i+1]
+            fortettet_coords.append((x1, y1))
+            dist = np.hypot(x2-x1, y2-y1)
+            n_pts = int(dist // 100)
+            for j in range(1, n_pts+1):
+                t = j/(n_pts+1)
+                nx = x1 + t*(x2-x1)
+                ny = y1 + t*(y2-y1)
+                fortettet_coords.append((nx, ny))
+        poly_fortettet = Polygon(fortettet_coords)
+        # Glatt polygonen med buffer(50)->buffer(-50)
+        poly_glatt = poly_fortettet.buffer(50).buffer(-50)
+        resultater.append({
+            "geometry": poly_glatt,
+            "objekttype": "N50-DyrketMark"
+        })
+    if not resultater:
+        return gpd.GeoDataFrame(columns=["geometry"], geometry="geometry", crs=konfig["crs"])
+    return gpd.GeoDataFrame(resultater, geometry="geometry", crs=konfig["crs"])
+# Alle imports skal være øverst
+import shapely
+import geopandas as gpd
 import numpy as np
+from typing import Dict
+from shapely.geometry import Polygon, Point, LineString
+from shapely.ops import unary_union
+# --- Gård og privat veg ---
+def generer_gard_og_privatsenterlinje(
+    vegsenterlinje_fylke: gpd.GeoDataFrame,
+    konfig: Dict[str, object],
+) -> tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]:
+    """
+    Genererer to gårder (punkt) og private veger (linje) fra gårdene til VegSenterlinjeFylke.
+    Gårdene plasseres 40% ut på VegSenterlinjeFylke, på samme side, tilfeldig avstand 50-300m, >150m fra hverandre.
+    """
+    rng = np.random.default_rng(int(konfig.get("seed", 12345)))
+    if vegsenterlinje_fylke.empty:
+        return (
+            gpd.GeoDataFrame(columns=["geometry"], geometry="geometry", crs=konfig["crs"]),
+            gpd.GeoDataFrame(columns=["geometry"], geometry="geometry", crs=konfig["crs"]),
+        )
+    gard_liste = []
+    priv_veger = []
+    for veglinje in vegsenterlinje_fylke.geometry:
+        lengde = veglinje.length
+        # Plasser gårdene ca 200 meter fra hverandre langs linjen, begge på samme side
+        midtpos = 0.4 * lengde
+        avstand_langs = 100  # +/- fra midtpos
+        pos1 = max(0, min(lengde, midtpos - avstand_langs))
+        pos2 = max(0, min(lengde, midtpos + avstand_langs))
+        p1 = veglinje.interpolate(pos1)
+        p2 = veglinje.interpolate(pos2)
+        # Finn normalvektor i midtpunktet
+        delta = 1.0
+        p0 = veglinje.interpolate(midtpos)
+        p0b = veglinje.interpolate(min(midtpos + delta, lengde))
+        dx, dy = p0b.x - p0.x, p0b.y - p0.y
+        nx, ny = -dy, dx
+        norm = np.hypot(nx, ny)
+        nx, ny = nx / norm, ny / norm
+        # Tilfeldig avstand ut fra linjen
+        avst1 = rng.uniform(50, 300)
+        avst2 = rng.uniform(50, 300)
+        gard1 = Point(p1.x + nx * avst1, p1.y + ny * avst1)
+        gard2 = Point(p2.x + nx * avst2, p2.y + ny * avst2)
+        def hent_hoyde(pt):
+            if hasattr(p0, 'z'):
+                return p0.z
+            return 0.0
+        gard_liste.append({"geometry": gard1, "objekttype": "N50-Gård", "hoyde": hent_hoyde(p0)})
+        gard_liste.append({"geometry": gard2, "objekttype": "N50-Gård", "hoyde": hent_hoyde(p0)})
+        for gard in [gard1, gard2]:
+            snap = veglinje.interpolate(veglinje.project(gard))
+            if hasattr(snap, 'z'):
+                z = snap.z
+            else:
+                z = 0.0
+            linje = LineString([
+                (gard.x, gard.y, z),
+                (snap.x, snap.y, z)
+            ])
+            priv_veger.append({"geometry": linje, "objekttype": "N50-VegSenterlinjePrivat"})
+    gard_gdf = gpd.GeoDataFrame(gard_liste, geometry="geometry", crs=konfig["crs"])
+    priv_gdf = gpd.GeoDataFrame(priv_veger, geometry="geometry", crs=konfig["crs"])
+    return gard_gdf, priv_gdf
+
+
 
 
 def generer_apentomrade(tin: gpd.GeoDataFrame, konfig: Dict[str, object]) -> gpd.GeoDataFrame:
@@ -435,13 +543,13 @@ def generer_havflate(kystkontur: gpd.GeoDataFrame, konfig: Dict[str, object]) ->
 
 
 
-def generer_vegsenterlinje(
+def generer_vegsenterlinje_fylke(
     stedsnavntekst: gpd.GeoDataFrame,
     kystkontur: gpd.GeoDataFrame,
     havflate: gpd.GeoDataFrame,
     konfig: Dict[str, object],
 ) -> gpd.GeoDataFrame:
-    """Generer N50-vegsenterlinjer som 3D-linjer mellom tettsteder."""
+    """Generer N50-vegsenterlinje_fylke som 3D-linjer mellom tettsteder."""
     tilfeldig = np.random.default_rng()
     bbox_polygon = box(*tuple(konfig["bbox"]))
     landgeometri = bbox_polygon.difference(havflate.geometry.iloc[0]).buffer(0)
@@ -460,7 +568,7 @@ def generer_vegsenterlinje(
     eksisterende_veger: List[LineString] = []
     vegobjekter: List[dict] = []
 
-    print("Starter generer_vegsenterlinje: lager tettsteder-liste")
+    print("Starter generer_vegsenterlinje_fylke: lager tettsteder-liste")
     for fra_indeks, til_indeks in forbindelser:
         fra_tettsted = tettsteder[fra_indeks]
         til_tettsted = tettsteder[til_indeks]
@@ -532,7 +640,7 @@ def generer_terrengpunkt(
     kystkontur: gpd.GeoDataFrame,
     havflate: gpd.GeoDataFrame,
     stedsnavntekst: gpd.GeoDataFrame,
-    vegsenterlinje: gpd.GeoDataFrame,
+    vegsenterlinje_fylke: gpd.GeoDataFrame,
     konfig: Dict[str, object],
     ) -> Tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]:
     """Generer N50-terrengpunkt som 3D-punkter over landarealet."""
@@ -554,7 +662,7 @@ def generer_terrengpunkt(
         }
         for _, rad in stedsnavntekst.iterrows()
     ]
-    fjellkjerner = _lag_fjellkjerner(landgeometri, kystlinje, tettsteder, vegsenterlinje, konfig, tilfeldig)
+    fjellkjerner = _lag_fjellkjerner(landgeometri, kystlinje, tettsteder, vegsenterlinje_fylke, konfig, tilfeldig)
     trig_punkt_liste = []
 
     terrengpunktdata: List[dict] = []
@@ -595,7 +703,7 @@ def generer_terrengpunkt(
     # Vegpunkter: bruk Z-verdi fra vegpunktet (alle punkter på vegsenterlinje skal ha Z)
     # Nivå 5: punkter langs veg hver 200m, bruk lineær høyde mellom start og slutt
     veg_punktavstand_n5 = 200.0
-    for veggeometri in vegsenterlinje.geometry:
+    for veggeometri in vegsenterlinje_fylke.geometry:
         for vegpunkt in _lag_linjeprover(veggeometri, veg_punktavstand_n5):
             # Sikre at vegpunkt har Z-verdi, ellers bruk terrengmodell
             if hasattr(vegpunkt, "z"):
@@ -943,7 +1051,7 @@ def _lag_fjellkjerner(
     landgeometri,
     kystlinje: LineString,
     tettsteder: List[dict],
-    vegsenterlinje: gpd.GeoDataFrame,
+    vegsenterlinje_fylke: gpd.GeoDataFrame,
     konfig: Dict[str, object],
     tilfeldig: np.random.Generator,
 ) -> List[dict]:
@@ -963,7 +1071,7 @@ def _lag_fjellkjerner(
         if any(kandidat.distance(kjerne["punkt"]) < min_tettstedavstand for kjerne in kjerner):
             continue
         # Sjekk avstand til alle vegsenterlinjer
-        if any(kandidat.distance(veglinje) < min_vegavstand for veglinje in vegsenterlinje.geometry):
+        if any(kandidat.distance(veglinje) < min_vegavstand for veglinje in vegsenterlinje_fylke.geometry):
             continue
 
         kjerner.append(

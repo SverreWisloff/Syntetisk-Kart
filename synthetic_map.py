@@ -16,7 +16,8 @@ from syntetisk_kart.synthetic_n50_module import (
     generer_stedsnavntekst,
     generer_terrengpunkt,
     generer_tin,
-    generer_vegsenterlinje,
+    generer_vegsenterlinje_fylke,
+    generer_gard_og_privatsenterlinje,
 )
 
 from geopandas import GeoDataFrame
@@ -35,7 +36,7 @@ STANDARD_KONFIGURASJON: Dict[str, Any] = {
     "kystlag_navn": "n50_kystkontur",
     "havlag_navn": "n50_havflate",
     "stedsnavn_lag_navn": "n50_stedsnavntekst",
-    "veglag_navn": "n50_vegsenterlinje",
+    "veglag_navn": "n50_vegsenterlinje_fylke",
     "terrenglag_navn": "n50_terrengpunkt",
     "tinlag_navn": "n50_tin",
     "hoydekurve_lag_navn": "n50_hoydekurve",
@@ -163,9 +164,15 @@ def generer_n50_kystkontur(
     kystkontur = generer_kystkontur(konfig)
     havflate = generer_havflate(kystkontur, konfig)
     stedsnavntekst = generer_stedsnavntekst(kystkontur, havflate, konfig)
-    vegsenterlinje = generer_vegsenterlinje(stedsnavntekst, kystkontur, havflate, konfig)
-    terrengpunkt, trig_punkt = generer_terrengpunkt(kystkontur, havflate, stedsnavntekst, vegsenterlinje, konfig)
+    vegsenterlinje_fylke = generer_vegsenterlinje_fylke(stedsnavntekst, kystkontur, havflate, konfig)
+    terrengpunkt, trig_punkt = generer_terrengpunkt(kystkontur, havflate, stedsnavntekst, vegsenterlinje_fylke, konfig)
     tin = generer_tin(terrengpunkt, havflate, konfig)
+
+    # 6. Generer N50-Gård og N50-VegSenterlinjePrivat
+    gard_gdf, privatveg_gdf = generer_gard_og_privatsenterlinje(vegsenterlinje_fylke, konfig)
+    # 6b. Generer N50-DyrketMark rundt gårdene
+    from syntetisk_kart.synthetic_n50_module import generer_dyrketmark_rundt_gard
+    dyrketmark_gdf = generer_dyrketmark_rundt_gard(gard_gdf, konfig)
 
     tettbebyggelse = generer_tettbebyggelse(stedsnavntekst, konfig)
     # 1. Generer høydekurver uten innsjøkant-filter
@@ -217,13 +224,12 @@ def generer_n50_kystkontur(
     else:
         eksisterende_arealdekke = GeoDataFrame(columns=["geometry"], geometry="geometry", crs=konfig["crs"])
 
-    # Bruk tidligere dyrketmark-algoritme til å lage ÅpentOmråde
-    apentomrade2 = generer_dyrketmark(tin, eksisterende_arealdekke, konfig)
-    apentomrade2 = klipp_til_land(apentomrade2)
+    # Tidligere: apentomrade2 = generer_dyrketmark(tin, eksisterende_arealdekke, konfig)
+    # apentomrade2 = klipp_til_land(apentomrade2)
 
     # 7. Generer N50-Skog: alt landareal minus union av alle andre arealdekker
     alle_arealdekker = []
-    for lag in [kystkontur, innsjo_kant, tettbebyggelse, myr, apentomrade, apentomrade2]:
+    for lag in [kystkontur, innsjo_kant, tettbebyggelse, myr, apentomrade]:
         if lag is not None and not lag.empty:
             alle_arealdekker.extend(list(lag.geometry))
     if alle_arealdekker:
@@ -252,7 +258,7 @@ def generer_n50_kystkontur(
     kystkontur.to_file(filsti, layer=str(konfig["kystlag_navn"]), driver="GPKG")
     havflate.to_file(filsti, layer=str(konfig["havlag_navn"]), driver="GPKG", mode="a")
     stedsnavntekst.to_file(filsti, layer=str(konfig["stedsnavn_lag_navn"]), driver="GPKG", mode="a")
-    vegsenterlinje.to_file(filsti, layer=str(konfig["veglag_navn"]), driver="GPKG", mode="a")
+    vegsenterlinje_fylke.to_file(filsti, layer=str(konfig["veglag_navn"]), driver="GPKG", mode="a")
     terrengpunkt.to_file(filsti, layer=str(konfig["terrenglag_navn"]), driver="GPKG", mode="a")
     tin.to_file(filsti, layer=str(konfig["tinlag_navn"]), driver="GPKG", mode="a")
     hoydekurve.to_file(filsti, layer=str(konfig["hoydekurve_lag_navn"]), driver="GPKG", mode="a")
@@ -261,13 +267,15 @@ def generer_n50_kystkontur(
     innsjo_kant.to_file(filsti, layer="n50_innsjokant", driver="GPKG", mode="a")
     myr.to_file(filsti, layer="n50_myr", driver="GPKG", mode="a")
     apentomrade.to_file(filsti, layer="n50_apentomrade", driver="GPKG", mode="a")
-    apentomrade2.to_file(filsti, layer="n50_apentomrade2", driver="GPKG", mode="a")
+    gard_gdf.to_file(filsti, layer="n50_gard", driver="GPKG", mode="a")
+    privatveg_gdf.to_file(filsti, layer="n50_vegsenterlinjeprivat", driver="GPKG", mode="a")
+    dyrketmark_gdf.to_file(filsti, layer="n50_dyrketmark", driver="GPKG", mode="a")
     skog_gdf.to_file(filsti, layer="n50_skog", driver="GPKG", mode="a")
     return {
         "kystkontur": kystkontur,
         "havflate": havflate,
         "stedsnavntekst": stedsnavntekst,
-        "vegsenterlinje": vegsenterlinje,
+        "vegsenterlinje_fylke": vegsenterlinje_fylke,
         "terrengpunkt": terrengpunkt,
         "tin": tin,
         "hoydekurve": hoydekurve,
@@ -276,7 +284,9 @@ def generer_n50_kystkontur(
         "innsjokant": innsjo_kant,
         "myr": myr,
         "apentomrade": apentomrade,
-        "apentomrade2": apentomrade2,
+        "gard": gard_gdf,
+        "vegsenterlinjeprivat": privatveg_gdf,
+        "dyrketmark": dyrketmark_gdf,
         "skog": skog_gdf,
         "filsti": filsti,
         "seed": konfig["seed"],
