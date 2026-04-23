@@ -2145,7 +2145,8 @@ def generer_tettbebyggelse(stedsnavntekst: gpd.GeoDataFrame, konfig: Dict[str, o
         resultater.append({
             "geometry": poly_glatt,
             "objekttype": "N50-Tettbebyggelse",
-            "navn": rad.get("navn", "")
+            "navn": rad.get("navn", ""),
+            "hoyde": float(rad.get("hoyde", 0.0))
         })
     if not resultater:
         return gpd.GeoDataFrame(columns=["geometry"], geometry="geometry", crs=konfig["crs"])

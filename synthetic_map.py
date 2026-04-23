@@ -60,7 +60,7 @@ STANDARD_KONFIGURASJON: Dict[str, Any] = {
     "tettsted_kystavstand": 200.0,
     "tettsted_avstand_min": 2500.0,
     "tettsted_avstand_maks": 6000.0,
-    "tettsted_kyst_hoyde": 15.0,
+    "tettsted_kyst_hoyde": 19.0,
     "tettsted_hoyde_divisor": 20.0,
     "tettsted_innland_min_kystandel": 0.25,
     "tettsted_innland_avstand_jitter": 0.08,

@@ -118,9 +118,9 @@ Lag et lukket polygon av havet med kystkontur
 ### N50-StedsnavnTekst (3D-Punkt)
 N50-StedsnavnTekst er objekttypen som beskriver tettsted. Dette er en 3D-punkt. 
 Området skal ha minst to StedsnavnTekst, jo større område - jo flere tettsteder.
-Minst ett kyst-tettsted skal ligge 200m ved kysten, med høyde=15m.
+Minst ett kyst-tettsted skal ligge 200m ved kysten, med høyde=19m.
 Minst ett innlands-tettsted lengst fra kysten, med høyde=avstand til kyst / 20.
-Det skal være tettsteder ved kysten med tilfeldig avstand mellom 2km og 6km. Tettsteder ved kysten har høyde=15m
+Det skal være tettsteder ved kysten med tilfeldig avstand mellom 2km og 6km. Tettsteder ved kysten har høyde=19m
 Generer flere innlands-tettsteder slik at avstanden mellom tettsteder har avstand mellom 2km og 6km.  Høyde=avstand til kyst / 20.
 
 ### N50-VegSenterlinjeFylke (3D-linje)
@@ -271,6 +271,7 @@ Ikke lag fortettingspunkter som er nærmere et annet fortettingspunkt enn 20m
 - Eikeveger: Interne veger med disse start og endepunkter:
   - Start: Midt på Side1 i Ringveg-polygonet, Ende: Midt på Side4 i Ringveg-polygonet. 
   - om det er nok sider i ringvegpolygonet: Start: Midt på Side5 i Ringveg-polygonet, Ende: Midt på Side8 i Ringveg-polygonet.
+- Sett høyden på alle punktene i de kommunale veier i tettstedene til tettstedets høyde
 - Lagres som N50-VegSenterlinjeKommunal (3D-linje)
 
 

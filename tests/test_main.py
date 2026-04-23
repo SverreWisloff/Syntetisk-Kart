@@ -66,8 +66,8 @@ def test_generer_n50_stedsnavntekst_gir_kyst_og_innlandspunkt(tmp_path: Path) ->
     assert len(stedsnavn) >= 2
     assert set(stedsnavn.geom_type) == {"Point"}
     assert stedsnavn.is_valid.all()
-    assert (stedsnavn["hoyde"] == 15.0).any()
-    assert (stedsnavn["hoyde"] > 15.0).any()
+    assert (stedsnavn["hoyde"] == 19.0).any()
+    assert (stedsnavn["hoyde"] > 19.0).any()
     assert (stedsnavn["navneobjekttype"] == "By").all()
 
 
@@ -263,8 +263,9 @@ def test_buesegmentlengde_beregnes_fra_radius_og_faktor() -> None:
 
 
 def test_generer_kommunal_veg_folger_polygon_og_splitter_mot_fylkesveg() -> None:
+    tettested_hoyde = 25.0
     tettbebyggelse = gpd.GeoDataFrame(
-        [{"geometry": Polygon([(0, 0), (1000, 0), (1000, 1000), (0, 1000)])}],
+        [{"geometry": Polygon([(0, 0), (1000, 0), (1000, 1000), (0, 1000)]), "hoyde": tettested_hoyde}],
         geometry="geometry",
         crs="EPSG:25833",
     )
@@ -306,6 +307,11 @@ def test_generer_kommunal_veg_folger_polygon_og_splitter_mot_fylkesveg() -> None
     assert (resultat["til_veg_id"] == -1).all()
     assert (resultat["radius"] == 100.0).all()
     assert str(resultat.crs) == "EPSG:25833"
+
+    # Alle punkter i kommunalveiene skal ha samme høyde som tettstedet
+    for geometri in resultat.geometry:
+        for x, y, z in geometri.coords:
+            assert abs(z - tettested_hoyde) < 0.01, f"Punkt ({x}, {y}, {z}) har ikke korrekt høyde, forventet {tettested_hoyde}"
 
     polygon = _som_polygon(tettbebyggelse.geometry.iloc[0])
     assert polygon is not None

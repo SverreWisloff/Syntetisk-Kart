@@ -43,6 +43,9 @@ def generer_kommunal_veg(
         if polygon is None:
             continue
 
+        # Hent høyden fra tettbebyggelsen (som har høyde fra stedsnavnteksten)
+        tettsted_hoyde = float(tett_rad.get("hoyde", 0.0))
+
         # For kysttettsteder: klipp tettbebyggelsespolygon mot land (trekk fra hav)
         arbeidspolygon = polygon
         if havgeom is not None and polygon.intersects(havgeom):
@@ -65,13 +68,11 @@ def generer_kommunal_veg(
             if segment.length < min_segmentlengde:
                 continue
 
-            starthoyde = _hoyde_for_punkt((float(segment.coords[0][0]), float(segment.coords[0][1])), vegsenterlinje_fylke)
-            slutthoyde = _hoyde_for_punkt((float(segment.coords[-1][0]), float(segment.coords[-1][1])), vegsenterlinje_fylke)
-
+            # Alle punkter i kommunalveien får samme høyde som tettstedet
             veg3d = _lag_3d_veglinje(
                 veg2d=segment,
-                starthoyde=starthoyde,
-                slutthoyde=slutthoyde,
+                starthoyde=tettsted_hoyde,
+                slutthoyde=tettsted_hoyde,
                 konfig=konfig,
                 tilfeldig=tilfeldig,
             )
@@ -94,13 +95,11 @@ def generer_kommunal_veg(
                 if segment.length < min_segmentlengde:
                     continue
 
-                starthoyde = _hoyde_for_punkt((float(segment.coords[0][0]), float(segment.coords[0][1])), vegsenterlinje_fylke)
-                slutthoyde = _hoyde_for_punkt((float(segment.coords[-1][0]), float(segment.coords[-1][1])), vegsenterlinje_fylke)
-
+                # Alle punkter i eikevegen får samme høyde som tettstedet
                 veg3d = _lag_3d_veglinje(
                     veg2d=segment,
-                    starthoyde=starthoyde,
-                    slutthoyde=slutthoyde,
+                    starthoyde=tettsted_hoyde,
+                    slutthoyde=tettsted_hoyde,
                     konfig=konfig,
                     tilfeldig=tilfeldig,
                 )
