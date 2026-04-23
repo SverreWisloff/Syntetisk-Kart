@@ -44,6 +44,7 @@
 
 ### Versjonskontroll
 - `.gpkg`, `.gpkg-shm` og `.gpkg-wal` skal aldri sjekkes inn.
+- Når bruker skriver "commit", skal det tolkes som commit av alle endrede filer (`git add -A`) med mindre bruker spesifiserer noe annet.
 
 ### Videre forbedringer
 - Dersom det er naturlig å utvide instruksjonene, skal forslag gis med kort begrunnelse.

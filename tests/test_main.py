@@ -299,7 +299,9 @@ def test_generer_kommunal_veg_folger_polygon_og_splitter_mot_fylkesveg() -> None
     assert resultat.is_valid.all()
     assert set(resultat.geom_type) == {"LineString"}
     assert resultat.geometry.apply(lambda g: g.has_z).all()
-    assert (resultat["side_av_fylkesveg"] == "ring_segment").all()
+    assert set(resultat["side_av_fylkesveg"].unique()).issubset({"ring_segment", "eikeveg_segment"})
+    assert (resultat["side_av_fylkesveg"] == "ring_segment").any()
+    assert (resultat["side_av_fylkesveg"] == "eikeveg_segment").any()
     assert (resultat["fra_veg_id"] == -1).all()
     assert (resultat["til_veg_id"] == -1).all()
     assert (resultat["radius"] == 100.0).all()

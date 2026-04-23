@@ -263,11 +263,14 @@ Ikke lag fortettingspunkter som er nærmere et annet fortettingspunkt enn 20m
 --------------------------
 
 ## N50-VegSenterlinjeKommunal (3D-linje)
-- Hvert Tettsted skal ha en kommunal veg som går rundt hele tettstedet.
-- Kommunalveg følger Tettbebyggelse-polygonet, men ikke utenfor kyst, en buffer mot sentrum.
-- Vegen skal ukke gå i havet. La den følge 100m fra kystlinjen
-- Kommunalveg har sving med radius=100m der vegen endrer retning.
-- Splitt kommunalvegpolygonen til linjer der kommunalveg krysser fylkesveg.
+- Ringvegen: Hvert Tettsted skal ha en kommunal veg som går rundt hele tettstedet.
+  - Kommunalveg følger Tettbebyggelse-polygonet, men ikke utenfor kyst, en buffer mot sentrum.
+  - Vegen skal ikke gå i havet. La den følge 100m fra kystlinjen
+  - Kommunalveg har sving med radius=100m der vegen endrer retning.
+  - Dersom kommunalvegpolygon krysser fylkesveg, splitt kommunalvegpolygon til linjer der kommunalveg krysser fylkesveg.
+- Eikeveger: Interne veger med disse start og endepunkter:
+  - Start: Midt på Side1 i Ringveg-polygonet, Ende: Midt på Side4 i Ringveg-polygonet. 
+  - om det er nok sider i ringvegpolygonet: Start: Midt på Side5 i Ringveg-polygonet, Ende: Midt på Side8 i Ringveg-polygonet.
 - Lagres som N50-VegSenterlinjeKommunal (3D-linje)
 
 

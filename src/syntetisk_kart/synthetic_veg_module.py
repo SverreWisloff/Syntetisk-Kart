@@ -87,6 +87,35 @@ def generer_kommunal_veg(
                 }
             )
 
+        interne_linjer = _lag_interne_linjer_i_ringpolygon(ringpolygon)
+        for intern_linje in interne_linjer:
+            internsegmenter = _splitt_linje_mot_fylkesveger(intern_linje, fylkeslinjer)
+            for segment in internsegmenter:
+                if segment.length < min_segmentlengde:
+                    continue
+
+                starthoyde = _hoyde_for_punkt((float(segment.coords[0][0]), float(segment.coords[0][1])), vegsenterlinje_fylke)
+                slutthoyde = _hoyde_for_punkt((float(segment.coords[-1][0]), float(segment.coords[-1][1])), vegsenterlinje_fylke)
+
+                veg3d = _lag_3d_veglinje(
+                    veg2d=segment,
+                    starthoyde=starthoyde,
+                    slutthoyde=slutthoyde,
+                    konfig=konfig,
+                    tilfeldig=tilfeldig,
+                )
+                kommunal_veger.append(
+                    {
+                        "geometry": veg3d,
+                        "objekttype": "N50-VegSenterlinjeKommunal",
+                        "radius": hjorneradius,
+                        "polygon_id": polygon_id,
+                        "fra_veg_id": -1,
+                        "til_veg_id": -1,
+                        "side_av_fylkesveg": "eikeveg_segment",
+                    }
+                )
+
     if not kommunal_veger:
         return _tom_kommunalveg_gdf(crs)
     return gpd.GeoDataFrame(kommunal_veger, geometry="geometry", crs=crs)
@@ -173,6 +202,60 @@ def _splitt_linje_mot_fylkesveger(ringlinje: LineString, fylkeslinjer: List[Line
         if isinstance(geometri, LineString) and geometri.length > 0.0:
             linjer.append(geometri)
     return linjer or [ringlinje]
+
+
+def _lag_interne_linjer_i_ringpolygon(ringpolygon: Polygon) -> List[LineString]:
+    """Lag interne eikeveger fra side 1->4 og eventuelt 5->8 hvis nok sider."""
+    antall_sider = 8
+    sidepar = [(1, 4)]
+    antall_koordinater = max(0, len(list(ringpolygon.exterior.coords)) - 1)
+    if antall_koordinater >= antall_sider:
+        sidepar.append((5, 8))
+    interne_linjer: List[LineString] = []
+
+    for startside, sluttside in sidepar:
+        startpunkt = _midtpunkt_pa_side(ringpolygon, startside, antall_sider)
+        sluttpunkt = _midtpunkt_pa_side(ringpolygon, sluttside, antall_sider)
+        if startpunkt is None or sluttpunkt is None:
+            continue
+
+        kandidat = LineString([startpunkt, sluttpunkt])
+        intern = _indre_del_av_linje_i_polygon(kandidat, ringpolygon)
+        if intern is not None and intern.length > 0.0:
+            interne_linjer.append(intern)
+
+    return interne_linjer
+
+
+def _midtpunkt_pa_side(polygon: Polygon, side_nr: int, antall_sider: int) -> Optional[Point]:
+    if antall_sider <= 0:
+        return None
+    ring = LineString([(float(x), float(y)) for x, y in polygon.exterior.coords])
+    if ring.length == 0.0:
+        return None
+
+    side_indeks = (int(side_nr) - 1) % antall_sider
+    startmaal = (side_indeks / antall_sider) * ring.length
+    sluttmaal = ((side_indeks + 1) / antall_sider) * ring.length
+    midtmaal = (startmaal + sluttmaal) * 0.5
+    return ring.interpolate(midtmaal)
+
+
+def _indre_del_av_linje_i_polygon(linje: LineString, polygon: Polygon) -> Optional[LineString]:
+    snitt = linje.intersection(polygon)
+    if snitt is None or snitt.is_empty:
+        return None
+    if isinstance(snitt, LineString):
+        return snitt
+    if isinstance(snitt, MultiLineString):
+        deler = [del_linje for del_linje in snitt.geoms if del_linje.length > 0.0]
+        if deler:
+            return max(deler, key=lambda del_linje: del_linje.length)
+    if isinstance(snitt, GeometryCollection):
+        deler = [delgeom for delgeom in snitt.geoms if isinstance(delgeom, LineString) and delgeom.length > 0.0]
+        if deler:
+            return max(deler, key=lambda del_linje: del_linje.length)
+    return None
 
 
 def _punktgeometrier(geometri) -> List[Point]:
