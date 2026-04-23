@@ -7,7 +7,7 @@ Se også [Oppgavebeskrivelse.md](Oppgavebeskrivelse.md) for full oppgavebeskrive
 
 ## Siste skjermdump
 
-![Siste skjermdump av kartresultat](skjermdumper/Skjermbilde%202026-04-22%20kl.%2022.59.45.png)
+![Siste skjermdump av kartresultat](skjermdumper/Skjermbilde%202026-04-23%20kl.%2022.46.43.png)
 
 Eksempel på syntetisk kart med kystkontur, tettsteder, vegsenterlinjer, terrengpunkter, glattede høydekurver og ny algoritme for tettbebyggelse.
 
