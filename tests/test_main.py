@@ -1,11 +1,13 @@
 import math
 from pathlib import Path
 
+import geopandas as gpd
 import numpy as np
-from shapely.geometry import Point
+from shapely.geometry import LineString, Point, Polygon
 
 from synthetic_map import generer_n50_kystkontur
 from syntetisk_kart.synthetic_n50_module import _beregn_buesegmentlengde, _del_segment_rekursivt
+from syntetisk_kart.synthetic_veg_module import _som_polygon, generer_kommunal_veg
 
 
 TEST_BBOX = (500000.0, 7030000.0, 504000.0, 7034000.0)
@@ -258,6 +260,67 @@ def test_buesegmentlengde_beregnes_fra_radius_og_faktor() -> None:
     )
 
     assert segmentlengde == 300.0
+
+
+def test_generer_kommunal_veg_folger_polygon_og_splitter_mot_fylkesveg() -> None:
+    tettbebyggelse = gpd.GeoDataFrame(
+        [{"geometry": Polygon([(0, 0), (1000, 0), (1000, 1000), (0, 1000)])}],
+        geometry="geometry",
+        crs="EPSG:25833",
+    )
+    vegsenterlinje_fylke = gpd.GeoDataFrame(
+        [
+            {
+                "geometry": LineString([(-200, 250, 10), (1200, 250, 10)]),
+                "vegtype": "Fylkesveg",
+            },
+            {
+                "geometry": LineString([(-200, 750, 18), (1200, 750, 18)]),
+                "vegtype": "Fylkesveg",
+            },
+        ],
+        geometry="geometry",
+        crs="EPSG:25833",
+    )
+
+    resultat = generer_kommunal_veg(
+        tettbebyggelse=tettbebyggelse,
+        vegsenterlinje_fylke=vegsenterlinje_fylke,
+        konfig={
+            "crs": "EPSG:25833",
+            "seed": 123,
+            "kommunal_veg_innover_buffer": 40.0,
+            "kommunal_veg_hjorneradius": 100.0,
+            "kommunal_veg_min_segmentlengde": 20.0,
+        },
+    )
+
+    assert len(resultat) >= 3
+    assert resultat.is_valid.all()
+    assert set(resultat.geom_type) == {"LineString"}
+    assert resultat.geometry.apply(lambda g: g.has_z).all()
+    assert (resultat["side_av_fylkesveg"] == "ring_segment").all()
+    assert (resultat["fra_veg_id"] == -1).all()
+    assert (resultat["til_veg_id"] == -1).all()
+    assert (resultat["radius"] == 100.0).all()
+    assert str(resultat.crs) == "EPSG:25833"
+
+    polygon = _som_polygon(tettbebyggelse.geometry.iloc[0])
+    assert polygon is not None
+    for geometri in resultat.geometry:
+        linje2d = LineString([(x, y) for x, y, *_ in geometri.coords])
+        assert polygon.buffer(1.0).covers(linje2d)
+
+    # Segmentene skal være splittet i kryss med fylkesvegene.
+    alle_ender = [
+        Point(*geometri.coords[0][:2])
+        for geometri in resultat.geometry
+    ] + [
+        Point(*geometri.coords[-1][:2])
+        for geometri in resultat.geometry
+    ]
+    assert any(abs(ende.y - 250.0) < 1.0 for ende in alle_ender)
+    assert any(abs(ende.y - 750.0) < 1.0 for ende in alle_ender)
 
 
 def test_rekursiv_deling_gir_tydelig_forste_avvik() -> None:

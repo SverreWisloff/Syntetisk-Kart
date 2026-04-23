@@ -69,17 +69,16 @@ STANDARD_KONFIGURASJON: Dict[str, Any] = {
     "tettsted_maks_forsok": 500,
     "tettsted_boks_margin": 100.0,
     "tettsted_navn": [
-        "Sjøvik",
+        "Vinglevik",
         "Fjordnes",
         "Bergstad",
-        "Dalheim",
+        "Huttemeitu",
         "Skogstrand",
         "Elverud",
         "Sverrestad",
         "Myggheim",
-        "Vingleby",
+        "Sjøvik",
         "Somlevik",
-        "Huttemeitu",
     ],
     "veg_seed_offset": 2000,
     "vegtype": "Riksveg",
@@ -103,6 +102,22 @@ STANDARD_KONFIGURASJON: Dict[str, Any] = {
     "veg_maks_delstegvinkel": 0.08,
     "veg_sluttbue_maks_forhold": 3.0,
     "veg_hoyde_avviksfaktor": 40.0,
+    "kommunal_veg_seed_offset": 2100,
+    "kommunal_veg_min_bueradius": 70.0,
+    "kommunal_veg_maks_bueradius": 100.0,
+    "kommunal_veg_min_lengde": 120.0,
+    "kommunal_veg_kontrollfaktor": 0.62,
+    "kommunal_veg_sentrumsdrag_faktor": 0.32,
+    "kommunal_veg_sidebue_faktor": 0.24,
+    "kommunal_veg_min_tilkoblingsvinkel": 32.0,
+    "kommunal_veg_utenfor_tettbebyggelse": 200.0,
+    "kommunal_veg_min_andel_i_tettbebyggelse": 0.15,
+    "kommunal_veg_punktavstand": 20.0,
+    "kommunal_veg_min_avstand": 12.0,
+    "kommunal_veg_innover_buffer": 40.0,
+    "kommunal_veg_kystbuffer": 100.0,
+    "kommunal_veg_hjorneradius": 100.0,
+    "kommunal_veg_min_segmentlengde": 20.0,
     "terreng_seed_offset": 3000,
     "terreng_niva1_punktavstand": 2000.0,
     "terreng_min_punktavstand": 35.0,
@@ -159,12 +174,16 @@ def generer_n50_kystkontur(
     bruker_konfig: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Generer og lagre N50-kystkontur som GeoPackage."""
+    # Print antall kommunale veger (etter generering)
     konfig = _merge_config(STANDARD_KONFIGURASJON, bruker_konfig)
     konfig["seed"] = _klargjor_seed(konfig)
     kystkontur = generer_kystkontur(konfig)
     havflate = generer_havflate(kystkontur, konfig)
     stedsnavntekst = generer_stedsnavntekst(kystkontur, havflate, konfig)
+    tettbebyggelse = generer_tettbebyggelse(stedsnavntekst, konfig)
     vegsenterlinje_fylke = generer_vegsenterlinje_fylke(stedsnavntekst, kystkontur, havflate, konfig)
+    from syntetisk_kart.synthetic_veg_module import generer_kommunal_veg
+    kommunal_veg = generer_kommunal_veg(tettbebyggelse, vegsenterlinje_fylke, konfig, havflate=havflate)
     terrengpunkt, trig_punkt = generer_terrengpunkt(kystkontur, havflate, stedsnavntekst, vegsenterlinje_fylke, konfig)
     tin = generer_tin(terrengpunkt, havflate, konfig)
 
@@ -174,7 +193,6 @@ def generer_n50_kystkontur(
     from syntetisk_kart.synthetic_n50_module import generer_dyrketmark_rundt_gard
     dyrketmark_gdf = generer_dyrketmark_rundt_gard(gard_gdf, konfig)
 
-    tettbebyggelse = generer_tettbebyggelse(stedsnavntekst, konfig)
     # 1. Generer høydekurver uten innsjøkant-filter
     hoydekurve = generer_hoydekurve(terrengpunkt, havflate, konfig)
     # 2. Generer innsjøkant basert på høydekurver
@@ -259,6 +277,8 @@ def generer_n50_kystkontur(
     havflate.to_file(filsti, layer=str(konfig["havlag_navn"]), driver="GPKG", mode="a")
     stedsnavntekst.to_file(filsti, layer=str(konfig["stedsnavn_lag_navn"]), driver="GPKG", mode="a")
     vegsenterlinje_fylke.to_file(filsti, layer=str(konfig["veglag_navn"]), driver="GPKG", mode="a")
+    if kommunal_veg is not None and not kommunal_veg.empty:
+        kommunal_veg.to_file(filsti, layer="n50_vegsenterlinjekommunal", driver="GPKG", mode="a")
     terrengpunkt.to_file(filsti, layer=str(konfig["terrenglag_navn"]), driver="GPKG", mode="a")
     tin.to_file(filsti, layer=str(konfig["tinlag_navn"]), driver="GPKG", mode="a")
     hoydekurve.to_file(filsti, layer=str(konfig["hoydekurve_lag_navn"]), driver="GPKG", mode="a")
@@ -276,6 +296,7 @@ def generer_n50_kystkontur(
         "havflate": havflate,
         "stedsnavntekst": stedsnavntekst,
         "vegsenterlinje_fylke": vegsenterlinje_fylke,
+        "vegsenterlinje_kommunal": kommunal_veg,
         "terrengpunkt": terrengpunkt,
         "tin": tin,
         "hoydekurve": hoydekurve,

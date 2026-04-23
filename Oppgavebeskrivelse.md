@@ -93,10 +93,10 @@ Bygg løsningen modulært med én orkestrator og temamoduler:
 1. N50-Kystkontur
 2. N50-Havflate
 3. N50-StedsnavnTekst
-4. N50-VegSenterlinjeFylke
-5. N50-Terrengpunkt
-6. N50-TIN
-7. N50-Tettbebyggelse
+4. N50-Tettbebyggelse
+5. N50-VegSenterlinjeFylke
+6. N50-Terrengpunkt
+7. N50-TIN
 8. N50-Hoydekurve
 9. N50-Innsjøkant
 10. N50-Myr
@@ -256,27 +256,26 @@ Resten av arealene er lagres som Skog
 ## CHAT
 --------------------------
 
-For få myrer.
-
 Ikke lag fortettingspunkter som er nærmere et annet fortettingspunkt enn 20m
-
-
 
 --------------------------
 **HIT HAR JEG KOMMET**
 --------------------------
 
-
-
-## N50-VegSenterlinjePrivat (3D-linje)
-Rund tettstedene skal Kommunale veger genereres.
-
-
 ## N50-VegSenterlinjeKommunal (3D-linje)
-Rund tettstedene skal Kommunale veger genereres.
+- Hvert Tettsted skal ha en kommunal veg som går rundt hele tettstedet.
+- Kommunalveg følger Tettbebyggelse-polygonet, men ikke utenfor kyst, en buffer mot sentrum.
+- Vegen skal ukke gå i havet. La den følge 100m fra kystlinjen
+- Kommunalveg har sving med radius=100m der vegen endrer retning.
+- Splitt kommunalvegpolygonen til linjer der kommunalveg krysser fylkesveg.
+- Lagres som N50-VegSenterlinjeKommunal (3D-linje)
+
+
+
+
 
 ## N50-VegSenterlinjePrivat (3D-linje)
-Rund tettstedene skal Kommunale veger genereres.
+xxx
 
 
 

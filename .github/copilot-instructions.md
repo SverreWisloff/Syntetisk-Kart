@@ -27,6 +27,12 @@
 - Bruk `_merge_config(defaults, overrides)` for å slå sammen standardverdier med brukerparametre.
 - Tilfeldig valg fra intervall brukes der variasjon er ønsket: `np.random.uniform(min, max)`.
 
+### Koordinatsystem og geodata
+- Alle `GeoDataFrame` som opprettes i koden skal få eksplisitt `crs=konfig["crs"]`, ikke stole på at CRS arves automatisk.
+- Ved lagring til GeoPackage skal laget som skrives alltid komme fra en `GeoDataFrame` med eksplisitt CRS satt.
+- Hvis et lag er tomt, skal tom `GeoDataFrame` fortsatt opprettes med korrekt `geometry`-kolonne og eksplisitt CRS.
+- Ved innføring av nye lag eller moduler skal det legges inn en enkel test som verifiserer at laget har korrekt CRS.
+
 ### Modularkitektur
 - Hver temamodul (`synthetic_*_module.py`) mottar parametre som argumenter, uten hardkoding av verdier i modulene.
 - Moduler returnerer `dict` eller `GeoDataFrame`.
