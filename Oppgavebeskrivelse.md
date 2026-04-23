@@ -95,15 +95,18 @@ Bygg løsningen modulært med én orkestrator og temamoduler:
 3. N50-StedsnavnTekst
 4. N50-Tettbebyggelse
 5. N50-VegSenterlinjeFylke
-6. N50-Terrengpunkt
-7. N50-TIN
-8. N50-Hoydekurve
-9. N50-Innsjøkant
-10. N50-Myr
-11. N50-ÅpentOmråde
-12. N50-DyrketMark
-13. N50-Skog
-14. N50-TrigonometriskPunkt
+6. N50-VegSenterlinjeKommunal
+7. N50-Gård
+8. N50-VegSenterlinjePrivat
+9. N50-DyrketMark
+10. N50-Terrengpunkt
+11. N50-TrigonometriskPunkt
+12. N50-TIN
+13. N50-Hoydekurve
+14. N50-Innsjøkant
+15. N50-Myr
+16. N50-ÅpentOmråde
+17. N50-Skog
 
 Denne rekkefølgen sikrer at alle avhengigheter mellom lagene ivaretas, og at arealdekke-lagene klippes og prioriteres riktig.
 
@@ -176,7 +179,8 @@ Bygg TIN
 - Høyden på nye punkt er TIN-interpolert høyde for x,y + tilfeldig verdi for hvert punkt: [-10 , 30.0]
 - Bygg TIN4 basert på alle terrengpunktene, lagre TIN4 til N50
 ### Nivå5: Fortetting (nivåets-punkt-tetthet=tettsted_avstand_min/4)
-- Generer terrengpunkter langs veg hver 200 meter (bruk lineær høyde mellom start og slutt på vegsegmentet).
+- Generer terrengpunkter langs fylkesveg hver 200 meter (bruk lineær høyde mellom start og slutt på vegsegmentet).
+- Generer terrengpunkter langs kommunal veg hver 200 meter (bruk lineær høyde mellom start og slutt på vegsegmentet).
 - Generer terrengpunkter langs kyst hver 200 meter (høyde=0).
 - For hver trekant genereres nye punkter inne i trekanten. Punktenes plassering i TIN-trekanten er tilfeldig, men ingen punkter skal være nærmere hverandre enn nivåets-punkt-tetthet.
   - nivåets-punkt-tetthet=tettsted_avstand_min/4. 

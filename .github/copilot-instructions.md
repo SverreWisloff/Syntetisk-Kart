@@ -44,6 +44,7 @@
 
 ### Versjonskontroll
 - `.gpkg`, `.gpkg-shm` og `.gpkg-wal` skal aldri sjekkes inn.
+- **Kjør ikke auto-commit etter hver endring**. Vent til bruker eksplisitt ber om "commit".
 - Når bruker skriver "commit", skal det tolkes som commit av alle endrede filer (`git add -A`) med mindre bruker spesifiserer noe annet.
 
 ### Videre forbedringer

@@ -184,14 +184,16 @@ def generer_n50_kystkontur(
     vegsenterlinje_fylke = generer_vegsenterlinje_fylke(stedsnavntekst, kystkontur, havflate, konfig)
     from syntetisk_kart.synthetic_veg_module import generer_kommunal_veg
     kommunal_veg = generer_kommunal_veg(tettbebyggelse, vegsenterlinje_fylke, konfig, havflate=havflate)
-    terrengpunkt, trig_punkt = generer_terrengpunkt(kystkontur, havflate, stedsnavntekst, vegsenterlinje_fylke, konfig)
-    tin = generer_tin(terrengpunkt, havflate, konfig)
-
-    # 6. Generer N50-Gård og N50-VegSenterlinjePrivat
+    
+    # Generer N50-Gård og N50-VegSenterlinjePrivat
     gard_gdf, privatveg_gdf = generer_gard_og_privatsenterlinje(vegsenterlinje_fylke, konfig)
-    # 6b. Generer N50-DyrketMark rundt gårdene
+    
+    # Generer N50-DyrketMark rundt gårdene
     from syntetisk_kart.synthetic_n50_module import generer_dyrketmark_rundt_gard
     dyrketmark_gdf = generer_dyrketmark_rundt_gard(gard_gdf, konfig)
+    
+    terrengpunkt, trig_punkt = generer_terrengpunkt(kystkontur, havflate, stedsnavntekst, vegsenterlinje_fylke, konfig, kommunal_veg=kommunal_veg)
+    tin = generer_tin(terrengpunkt, havflate, konfig)
 
     # 1. Generer høydekurver uten innsjøkant-filter
     hoydekurve = generer_hoydekurve(terrengpunkt, havflate, konfig)

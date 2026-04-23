@@ -642,6 +642,7 @@ def generer_terrengpunkt(
     stedsnavntekst: gpd.GeoDataFrame,
     vegsenterlinje_fylke: gpd.GeoDataFrame,
     konfig: Dict[str, object],
+    kommunal_veg: Optional[gpd.GeoDataFrame] = None,
     ) -> Tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]:
     """Generer N50-terrengpunkt som 3D-punkter over landarealet."""
     tilfeldig = np.random.default_rng()
@@ -726,7 +727,35 @@ def generer_terrengpunkt(
             )
             type_teller["veg"] += 1
             total_teller += 1
-    print("Ferdig veg, starter fjellkjerne")
+    print("Ferdig veg, starter kommunale veger")
+
+    # Kommunale vegpunkter: bruk Z-verdi fra vegpunktet
+    # Samme som fylkesveger: punkter langs veg hver 200m med lineær høyde interpolasjon
+    if kommunal_veg is not None and not kommunal_veg.empty:
+        for veggeometri in kommunal_veg.geometry:
+            for vegpunkt in _lag_linjeprover(veggeometri, veg_punktavstand_n5):
+                # Sikre at vegpunkt har Z-verdi, ellers bruk terrengmodell
+                if hasattr(vegpunkt, "z"):
+                    hoyde = float(vegpunkt.z)
+                else:
+                    hoyde = _beregn_terrenghoyde(
+                        vegpunkt,
+                        kystlinje,
+                        tettsteder,
+                        fjellkjerner,
+                        konfig,
+                    )
+                _legg_til_terrengpunkt(
+                    terrengpunktdata,
+                    brukte_punkter,
+                    vegpunkt,
+                    hoyde,
+                    "kommunal_veg",
+                    minste_avstand,
+                )
+                type_teller["kommunal_veg"] = type_teller.get("kommunal_veg", 0) + 1
+                total_teller += 1
+    print("Ferdig kommunale veger, starter fjellkjerne")
 
     for kjerne in fjellkjerner:
         hoyde = _beregn_terrenghoyde(kjerne["punkt"], kystlinje, tettsteder, fjellkjerner, konfig)
